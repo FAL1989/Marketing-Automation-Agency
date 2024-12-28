@@ -1,0 +1,3 @@
+1|curl -X POST http://127.0.0.1:8001/users/token \
+2|-H "Content-Type: application/x-www-form-urlencoded" \
+3|-d "username=fernando@example.com&password=admin123" 

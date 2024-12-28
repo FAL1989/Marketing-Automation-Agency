@@ -1,0 +1,31 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="backend",
+    version="1.0.0",
+    packages=find_packages(),
+    install_requires=[
+        "fastapi>=0.68.0",
+        "uvicorn>=0.15.0",
+        "python-multipart>=0.0.5",
+        "python-jose[cryptography]>=3.3.0",
+        "passlib[bcrypt]>=1.7.4",
+        "sqlalchemy>=1.4.23",
+        "alembic>=1.7.1",
+        "psycopg2-binary>=2.9.1",
+        "redis>=4.0.2",
+        "prometheus-client>=0.11.0",
+        "python-json-logger>=2.0.2",
+        "python-dotenv>=0.19.0",
+        "pydantic[email]>=1.8.2",
+        "cryptography>=3.4.8",
+        "structlog>=21.1.0",
+        "motor>=3.3.1",
+        "aiosmtplib>=2.0.1",
+        "pandas>=2.0.0",
+        "xlsxwriter>=3.1.0",
+        "aiofiles>=23.1.0",
+        "python-magic>=0.4.27"
+    ],
+    python_requires=">=3.8",
+) 

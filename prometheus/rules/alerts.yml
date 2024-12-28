@@ -1,0 +1,78 @@
+groups:
+  - name: api_alerts
+    rules:
+      - alert: HighRequestLatency
+        expr: rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High request latency on {{ $labels.instance }}
+          description: "API request latency is above 1s (current value: {{ $value }}s)"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100 > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: High error rate on {{ $labels.instance }}
+          description: "Error rate is above 5% (current value: {{ $value }}%)"
+
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state{state="OPEN"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Circuit breaker open on {{ $labels.instance }}
+          description: "Circuit breaker is in OPEN state for service {{ $labels.service }}"
+
+  - name: resource_alerts
+    rules:
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High CPU usage on {{ $labels.instance }}
+          description: "CPU usage is above 80% (current value: {{ $value }}%)"
+
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes / node_memory_MemTotal_bytes * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High memory usage on {{ $labels.instance }}
+          description: "Memory usage is above 80% (current value: {{ $value }}%)"
+
+  - name: openai_alerts
+    rules:
+      - alert: OpenAIHighLatency
+        expr: rate(openai_request_duration_seconds_sum[5m]) / rate(openai_request_duration_seconds_count[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High OpenAI API latency
+          description: "OpenAI API requests are taking longer than 5s (current value: {{ $value }}s)"
+
+      - alert: OpenAIHighErrorRate
+        expr: rate(openai_requests_total{status="error"}[5m]) / rate(openai_requests_total[5m]) * 100 > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: High OpenAI API error rate
+          description: "OpenAI API error rate is above 10% (current value: {{ $value }}%)"
+
+      - alert: OpenAITokenQuotaWarning
+        expr: openai_token_quota_remaining / openai_token_quota_total * 100 < 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenAI token quota running low
+          description: "OpenAI token quota is below 20% (current value: {{ $value }}%)" 

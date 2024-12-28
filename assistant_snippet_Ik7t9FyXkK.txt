@@ -1,0 +1,8 @@
+1|{
+2|  "title": "Teste de Geração",
+3|  "prompt": "Escreva um parágrafo sobre inteligência artificial.",
+4|  "parameters": {
+5|    "temperature": 0.7,
+6|    "max_tokens": 500
+7|  }
+8|} 

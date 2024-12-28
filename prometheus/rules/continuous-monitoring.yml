@@ -1,0 +1,92 @@
+groups:
+  - name: continuous_monitoring
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100 > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is above 0.1% (current value: {{ $value }}%)"
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "High latency detected"
+          description: "95th percentile latency is above 800ms (current value: {{ $value }}s)"
+
+      - alert: HighCPUUsage
+        expr: avg(rate(container_cpu_usage_seconds_total{container!=""}[5m]) * 100) by (container) > 80
+        for: 10m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "High CPU usage"
+          description: "Container {{ $labels.container }} CPU usage above 80%"
+
+      - alert: HighMemoryUsage
+        expr: avg(container_memory_usage_bytes{container!=""} / container_spec_memory_limit_bytes * 100) by (container) > 85
+        for: 10m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "High memory usage"
+          description: "Container {{ $labels.container }} memory usage above 85%"
+
+      - alert: LowDiskSpace
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "Low disk space"
+          description: "Disk usage is above 85% (current value: {{ $value }}%)"
+
+      - alert: BackupFailure
+        expr: backup_success_timestamp < (time() - 86400)
+        for: 1h
+        labels:
+          severity: critical
+          category: backup
+        annotations:
+          summary: "Backup failure detected"
+          description: "No successful backup in the last 24 hours"
+
+      - alert: CircuitBreakerTripped
+        expr: circuit_breaker_state{state="open"} > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: reliability
+        annotations:
+          summary: "Circuit breaker tripped"
+          description: "Circuit breaker for {{ $labels.service }} is in open state"
+
+      - alert: APIKeyExpiringSoon
+        expr: api_key_expiry_seconds < 604800  # 7 days
+        for: 1h
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "API key expiring soon"
+          description: "API key will expire in less than 7 days"
+
+      - alert: UnusualTrafficSpike
+        expr: rate(http_requests_total[5m]) > 2 * avg_over_time(rate(http_requests_total[1h])[1d:1h])
+        for: 5m
+        labels:
+          severity: warning
+          category: traffic
+        annotations:
+          summary: "Unusual traffic spike detected"
+          description: "Current traffic is more than 2x the average" 

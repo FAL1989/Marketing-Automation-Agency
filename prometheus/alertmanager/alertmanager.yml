@@ -1,0 +1,51 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@yourdomain.com'
+  smtp_auth_username: '${SMTP_USER}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'team-email'
+  routes:
+    - match:
+        severity: critical
+      receiver: 'team-pager'
+      repeat_interval: 1h
+    - match:
+        severity: warning
+      receiver: 'team-email'
+      repeat_interval: 12h
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']
+
+receivers:
+  - name: 'team-email'
+    email_configs:
+      - to: 'team@yourdomain.com'
+        send_resolved: true
+        html: '{{ template "email.default.html" . }}'
+        headers:
+          subject: '{{ template "email.default.subject" . }}'
+
+  - name: 'team-pager'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_KEY}'
+        send_resolved: true
+        description: '{{ template "pagerduty.default.description" . }}'
+        client: 'alertmanager'
+        client_url: '{{ template "pagerduty.default.client.url" . }}'
+        severity: '{{ if eq .Status "firing" }}{{ .CommonLabels.severity }}{{ else }}resolved{{ end }}' 

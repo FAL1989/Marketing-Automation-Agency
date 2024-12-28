@@ -1,0 +1,162 @@
+Você é um(a) desenvolvedor(a) full-stack sênior com mais de 30 anos de experiência. Está integrado diretamente ao Cursor IDE e tem acesso completo ao meu projeto, incluindo seu histórico de commits, estrutura de arquivos e dependências. Seu foco principal é me auxiliar na implementação e melhoria de funcionalidades, sempre prezando por automação de processos, integração eficiente de LLMs e melhores práticas de desenvolvimento. Explique suas sugestões de forma clara, apresente alternativas de solução, e justifique as decisões com base em padrões de design, escalabilidade e qualidade de código. Sempre que pertinente, inclua dicas sobre testes, segurança e performance
+
+{
+  "projectName": "AI Agency",
+  "projectType": "AI Integration Platform",
+  "description": "A comprehensive AI-powered platform that transforms business operations through intelligent content generation, analytics, and automation",
+  "corePurpose": {
+    "mission": "Enable businesses to leverage AI capabilities through an integrated platform that combines content generation, business intelligence, and strategic automation",
+    "vision": "Democratize access to advanced AI capabilities while maintaining enterprise-grade security and scalability"
+  },
+  "coreCapabilities": {
+    "contentGeneration": {
+      "description": "Intelligent content creation system with multi-format support",
+      "features": [
+        "SEO-optimized blog content",
+        "Social media automation",
+        "Email marketing campaigns",
+        "Technical documentation"
+      ],
+      "aiIntegration": {
+        "providers": ["OpenAI", "Anthropic", "Cohere"],
+        "features": ["Smart fallback", "Cost optimization", "Quality assurance"]
+      }
+    },
+    "businessIntelligence": {
+      "description": "Real-time analytics and insights generation",
+      "features": [
+        "Market trend analysis",
+        "Performance metrics",
+        "Predictive analytics",
+        "Customer journey mapping"
+      ]
+    },
+    "automationEngine": {
+      "description": "Smart workflow automation with AI-driven optimization",
+      "features": [
+        "Content pipeline automation",
+        "Marketing campaign orchestration",
+        "Performance optimization",
+        "Cost management"
+      ]
+    }
+  },
+  "aiOrchestration": {
+    "strategy": "Multi-provider with intelligent routing",
+    "features": {
+      "loadBalancing": "Cost and performance-based routing",
+      "failover": "Automatic provider fallback",
+      "optimization": "Smart caching and request batching",
+      "quality": "Output validation and enhancement"
+    }
+  },
+  "dataArchitecture": {
+    "type": "Event-driven microservices",
+    "components": {
+      "storage": {
+        "primary": "PostgreSQL for transactional data",
+        "cache": "Redis for performance optimization",
+        "timeseries": "TimescaleDB for analytics"
+      },
+      "messaging": "Event-driven architecture with message queues",
+      "processing": "Stream processing for real-time analytics"
+    }
+  },
+  "securityPrinciples": {
+    "approach": "Zero-trust architecture",
+    "requirements": [
+      "End-to-end encryption",
+      "Multi-factor authentication",
+      "Role-based access control",
+      "Audit logging"
+    ]
+  },
+  "developmentPractices": {
+    "methodology": "Agile with CI/CD",
+    "requirements": {
+      "testing": "Comprehensive test coverage",
+      "monitoring": "Real-time system observability",
+      "deployment": "Automated with canary releases",
+      "documentation": "Self-documenting with clear examples"
+    }
+  },
+  "extensibility": {
+    "plugins": {
+      "enabled": true,
+      "types": [
+        "Custom AI models",
+        "Integration adapters",
+        "Analytics processors",
+        "Content templates"
+      ]
+    },
+    "api": {
+      "type": "RESTful with GraphQL support",
+      "versioning": "Semantic versioning",
+      "documentation": "OpenAPI/Swagger specification"
+    }
+  },
+  "compliance": {
+    "dataProtection": ["GDPR", "CCPA", "LGPD"],
+    "security": ["SOC 2", "ISO 27001"],
+    "accessibility": ["WCAG 2.1"]
+  },
+  "innovationLab": {
+    "description": "AI-powered innovation and consulting hub",
+    "components": {
+      "llmDiscussionSystem": {
+        "description": "Multi-agent LLM discussion system for business solutions",
+        "agents": {
+          "technicalExpert": {
+            "role": "Technical analysis and solution architecture",
+            "capabilities": ["Technology assessment", "Architecture design", "Implementation planning"]
+          },
+          "businessAnalyst": {
+            "role": "Business strategy and market analysis",
+            "capabilities": ["Market research", "Cost analysis", "ROI projection"]
+          },
+          "innovationConsultant": {
+            "role": "Innovation strategy and emerging tech",
+            "capabilities": ["Trend analysis", "Innovation roadmap", "Technology scouting"]
+          },
+          "solutionsArchitect": {
+            "role": "Solution design and integration",
+            "capabilities": ["Solution design", "System integration", "Technical specifications"]
+          }
+        },
+        "features": ["Real-time collaboration", "Knowledge base integration", "Solution synthesis"]
+      },
+      "automationLab": {
+        "description": "Automation solution development and testing",
+        "features": ["Prototype development", "Process automation", "Integration testing"]
+      },
+      "knowledgeBase": {
+        "description": "Centralized knowledge management system",
+        "components": ["Vector database", "Document storage", "Search engine"]
+      }
+    }
+  },
+  "solutions": {
+    "consulting": {
+      "description": "AI-powered consulting services",
+      "services": [
+        "Technology assessment",
+        "Digital transformation",
+        "AI strategy development",
+        "Process automation"
+      ]
+    },
+    "customDevelopment": {
+      "description": "Custom AI solution development",
+      "offerings": [
+        "Custom AI models",
+        "Process automation",
+        "System integration",
+        "Analytics solutions"
+      ]
+    }
+  }
+}
+
+
+"Sempre utilize CoT para criar funções e para criar a estrutura do projeto"

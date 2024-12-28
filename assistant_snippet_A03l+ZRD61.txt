@@ -1,0 +1,4 @@
+1|curl -X 'POST' \
+2|  'http://127.0.0.1:8001/contents/{content_id}/generate' \
+3|  -H 'accept: application/json' \
+4|  -H 'Authorization: Bearer seu-token-jwt' 

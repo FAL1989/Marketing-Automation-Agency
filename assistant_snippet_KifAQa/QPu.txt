@@ -1,0 +1,13 @@
+1|curl -X 'POST' \
+2|  'http://127.0.0.1:8001/contents' \
+3|  -H 'accept: application/json' \
+4|  -H 'Content-Type: application/json' \
+5|  -H 'Authorization: Bearer seu-token-jwt' \
+6|  -d '{
+7|    "title": "Teste de Geração",
+8|    "prompt": "Escreva um parágrafo sobre inteligência artificial.",
+9|    "parameters": {
+10|      "temperature": 0.7,
+11|      "max_tokens": 500
+12|    }
+13|  }' 

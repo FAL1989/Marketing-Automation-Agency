@@ -1,0 +1,67 @@
+groups:
+  - name: AI Agency Alerts
+    folder: Alerts
+    interval: 1m
+    rules:
+      - title: Alta Taxa de Erros
+        uid: high_error_rate
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              expr: sum(rate(app_errors_total[5m])) > 10
+              intervalMs: 1000
+              maxDataPoints: 43200
+        condition: |
+          sum(rate(app_errors_total[5m])) > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Alta taxa de erros detectada
+          description: A taxa de erros está acima de 10 por minuto nos últimos 5 minutos
+          
+      - title: Tempo de Resposta Alto
+        uid: high_response_time
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              expr: avg(rate(request_duration_seconds_sum[5m]) / rate(request_duration_seconds_count[5m])) > 2
+              intervalMs: 1000
+              maxDataPoints: 43200
+        condition: |
+          avg(rate(request_duration_seconds_sum[5m]) / rate(request_duration_seconds_count[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Tempo de resposta elevado
+          description: O tempo médio de resposta está acima de 2 segundos nos últimos 5 minutos
+          
+      - title: Muitos Usuários Ativos
+        uid: high_active_users
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              expr: sum(active_users) > 100
+              intervalMs: 1000
+              maxDataPoints: 43200
+        condition: |
+          sum(active_users) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Alto número de usuários ativos
+          description: O número de usuários ativos está acima de 100

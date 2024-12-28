@@ -1,0 +1,38 @@
+groups:
+  - name: security_alerts
+    rules:
+      - alert: HighFailedLoginRate
+        expr: rate(failed_login_attempts_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alta taxa de falhas de login"
+          description: "{{ $value }} tentativas falhas de login por minuto nos últimos 5 minutos"
+
+      - alert: AccountLockoutSpike
+        expr: rate(account_lockouts_total[15m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pico de bloqueios de conta"
+          description: "{{ $value }} contas bloqueadas por minuto nos últimos 15 minutos"
+
+      - alert: HighRateLimitHits
+        expr: rate(rate_limit_hits_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alto número de hits no rate limit"
+          description: "{{ $value }} hits no rate limit por minuto nos últimos 5 minutos"
+
+      - alert: UnusualSessionSpike
+        expr: active_sessions > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pico incomum de sessões ativas"
+          description: "{{ $value }} sessões ativas simultaneamente" 

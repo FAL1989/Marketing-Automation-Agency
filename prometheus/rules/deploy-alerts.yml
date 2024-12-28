@@ -1,0 +1,77 @@
+groups:
+  - name: deploy_alerts
+    rules:
+      - alert: DeployStepFailed
+        expr: deploy_step_failure > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: deploy
+        annotations:
+          summary: "Deploy step failed"
+          description: "A step in the deployment process has failed. Check the logs for more details."
+
+      - alert: DeployHighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100 > 1
+        for: 2m
+        labels:
+          severity: critical
+          category: deploy
+        annotations:
+          summary: "High error rate during deploy"
+          description: "Error rate is above 1% during deployment (current value: {{ $value }}%)"
+
+      - alert: DeployHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 2m
+        labels:
+          severity: warning
+          category: deploy
+        annotations:
+          summary: "High latency during deploy"
+          description: "95th percentile latency is above 2s during deployment (current value: {{ $value }}s)"
+
+      - alert: DeploymentStuck
+        expr: time() - deploy_step_success > 900  # 15 minutos
+        for: 1m
+        labels:
+          severity: warning
+          category: deploy
+        annotations:
+          summary: "Deployment may be stuck"
+          description: "No deployment steps have completed in the last 15 minutes"
+
+      - alert: RollbackTriggered
+        expr: increase(deploy_rollback_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: deploy
+        annotations:
+          summary: "Rollback triggered during deployment"
+          description: "A rollback was triggered during the deployment process"
+
+      - alert: HealthCheckFailure
+        expr: health_check_failure > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: deploy
+        annotations:
+          summary: "Health check failed during deploy"
+          description: "A service health check has failed during deployment"
+
+      - alert: ResourceUtilizationSpike
+        expr: |
+          (
+            rate(container_cpu_usage_seconds_total{container!=""}[5m]) * 100
+            or
+            container_memory_usage_bytes{container!=""} / container_spec_memory_limit_bytes * 100
+          ) > 80
+        for: 2m
+        labels:
+          severity: warning
+          category: deploy
+        annotations:
+          summary: "Resource utilization spike during deploy"
+          description: "Resource utilization is above 80% during deployment" 

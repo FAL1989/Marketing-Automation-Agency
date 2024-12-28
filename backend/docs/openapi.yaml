@@ -1,0 +1,386 @@
+openapi: 3.0.3
+info:
+  title: AI Agency API
+  description: |
+    API da plataforma AI Agency para gerenciamento e geração de conteúdo usando múltiplos provedores de IA.
+    
+    ## Recursos Principais
+    - Gerenciamento de prompts e templates
+    - Integração com múltiplos provedores (OpenAI, Anthropic, Cohere)
+    - Sistema de filas e rate limiting
+    - Monitoramento e métricas
+  version: 1.0.0
+  contact:
+    name: Time Backend
+    email: backend@aiagency.com
+
+servers:
+  - url: http://localhost:8000
+    description: Ambiente de Desenvolvimento
+  - url: https://staging.aiagency.com
+    description: Ambiente de Staging
+  - url: https://api.aiagency.com
+    description: Ambiente de Produção
+
+tags:
+  - name: auth
+    description: Autenticação e autorização
+  - name: content
+    description: Geração e gerenciamento de conteúdo
+  - name: templates
+    description: Gerenciamento de templates
+  - name: providers
+    description: Gerenciamento de provedores de IA
+  - name: monitoring
+    description: Monitoramento e métricas
+
+paths:
+  /auth/token:
+    post:
+      tags:
+        - auth
+      summary: Obter token de acesso
+      description: Autentica o usuário e retorna um token JWT
+      operationId: getAccessToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  example: user@example.com
+                password:
+                  type: string
+                  example: "********"
+              required:
+                - username
+                - password
+      responses:
+        '200':
+          description: Token gerado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: bearer
+        '401':
+          description: Credenciais inválidas
+
+  /content/generate:
+    post:
+      tags:
+        - content
+      summary: Gerar conteúdo
+      description: Gera conteúdo usando um template e provedor específico
+      operationId: generateContent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template_id:
+                  type: string
+                  format: uuid
+                variables:
+                  type: object
+                  additionalProperties: true
+                provider:
+                  type: string
+                  enum: [openai, anthropic, cohere]
+                  default: openai
+                model:
+                  type: string
+                priority:
+                  type: integer
+                  minimum: 0
+                  maximum: 9
+                  default: 0
+              required:
+                - template_id
+                - variables
+      responses:
+        '202':
+          description: Requisição aceita e enfileirada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [queued, processing]
+        '400':
+          description: Parâmetros inválidos
+        '401':
+          description: Não autorizado
+        '429':
+          description: Rate limit excedido
+
+  /content/status/{request_id}:
+    get:
+      tags:
+        - content
+      summary: Verificar status da geração
+      description: Verifica o status de uma requisição de geração de conteúdo
+      operationId: getContentStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Status da requisição
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [queued, processing, completed, failed]
+                  content:
+                    type: string
+                    description: Conteúdo gerado (se status=completed)
+                  error:
+                    type: string
+                    description: Mensagem de erro (se status=failed)
+        '404':
+          description: Requisição não encontrada
+
+  /templates:
+    get:
+      tags:
+        - templates
+      summary: Listar templates
+      description: Retorna a lista de templates disponíveis
+      operationId: listTemplates
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Lista de templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Template'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  per_page:
+                    type: integer
+    
+    post:
+      tags:
+        - templates
+      summary: Criar template
+      description: Cria um novo template
+      operationId: createTemplate
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateCreate'
+      responses:
+        '201':
+          description: Template criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+
+  /providers/status:
+    get:
+      tags:
+        - providers
+      summary: Status dos provedores
+      description: Retorna o status de cada provedor de IA
+      operationId: getProvidersStatus
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Status dos provedores
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                          enum: [available, unavailable]
+                        models:
+                          type: array
+                          items:
+                            type: string
+                        rate_limit:
+                          type: object
+                          properties:
+                            remaining:
+                              type: integer
+                            reset_at:
+                              type: string
+                              format: date-time
+
+  /monitoring/metrics:
+    get:
+      tags:
+        - monitoring
+      summary: Métricas do sistema
+      description: Retorna métricas de uso e performance
+      operationId: getMetrics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Métricas do sistema
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests_total:
+                    type: integer
+                  success_rate:
+                    type: number
+                    format: float
+                  average_response_time:
+                    type: number
+                    format: float
+                  provider_stats:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        requests:
+                          type: integer
+                        success_rate:
+                          type: number
+                          format: float
+                        average_tokens:
+                          type: number
+                          format: float
+
+components:
+  schemas:
+    Template:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        prompt:
+          type: string
+        variables:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                enum: [text, number, boolean, options]
+              required:
+                type: boolean
+              default:
+                type: string
+              options:
+                type: array
+                items:
+                  type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    
+    TemplateCreate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        prompt:
+          type: string
+        variables:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                enum: [text, number, boolean, options]
+              required:
+                type: boolean
+              default:
+                type: string
+              options:
+                type: array
+                items:
+                  type: string
+      required:
+        - name
+        - prompt
+        - variables
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT 

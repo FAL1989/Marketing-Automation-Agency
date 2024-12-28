@@ -1,0 +1,195 @@
+{
+  "info": {
+    "name": "AI Agency API",
+    "description": "Coleção Postman para a API do AI Agency",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "seu_token_aqui",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Autenticação",
+      "item": [
+        {
+          "name": "Obter Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/token",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "token"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"user@example.com\",\n  \"password\": \"senha123\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Geração de Conteúdo",
+      "item": [
+        {
+          "name": "Gerar Conteúdo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/content/generate",
+              "host": ["{{base_url}}"],
+              "path": ["content", "generate"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"template_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"variables\": {\n    \"topic\": \"Inteligência Artificial\",\n    \"tone\": \"profissional\"\n  },\n  \"provider\": \"openai\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Verificar Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/content/status/{{request_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["content", "status", "{{request_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Templates",
+      "item": [
+        {
+          "name": "Listar Templates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/templates?page=1&per_page=10",
+              "host": ["{{base_url}}"],
+              "path": ["templates"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Criar Template",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/templates",
+              "host": ["{{base_url}}"],
+              "path": ["templates"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Artigo de Blog\",\n  \"description\": \"Template para artigos de blog\",\n  \"prompt\": \"Escreva um artigo sobre {topic} com tom {tone}\",\n  \"variables\": [\n    {\n      \"name\": \"topic\",\n      \"type\": \"text\",\n      \"required\": true\n    },\n    {\n      \"name\": \"tone\",\n      \"type\": \"options\",\n      \"required\": true,\n      \"options\": [\"profissional\", \"casual\", \"técnico\"]\n    }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Provedores",
+      "item": [
+        {
+          "name": "Status dos Provedores",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/providers/status",
+              "host": ["{{base_url}}"],
+              "path": ["providers", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Monitoramento",
+      "item": [
+        {
+          "name": "Métricas do Sistema",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/monitoring/metrics",
+              "host": ["{{base_url}}"],
+              "path": ["monitoring", "metrics"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+} 
