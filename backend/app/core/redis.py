@@ -1,148 +1,115 @@
-from redis.asyncio import Redis, ConnectionPool
-from typing import Dict, Optional
 import logging
-import asyncio
-from .config import settings
+from typing import Optional
+import redis.asyncio as redis
+from app.core.redis_config import get_redis_config, get_redis_url
 
 logger = logging.getLogger(__name__)
 
-class RedisManager:
-    """
-    Gerenciador de conexões Redis com suporte a múltiplos bancos
-    """
-    def __init__(self):
-        self._pools: Dict[str, ConnectionPool] = {}
-        self._connections: Dict[str, Redis] = {}
-        self._lock = asyncio.Lock()
-        self._initialized = False
-        
-        # Configurações padrão
-        self.default_pool_size = 10
-        self.default_socket_timeout = 5.0
-        self.default_socket_connect_timeout = 5.0
-        
-        # Mapeamento de nomes para números de banco
-        self.db_map = {
-            'default': settings.REDIS_DB,
-            'rate_limit': settings.REDIS_RATELIMIT_DB
-        }
-    
-    async def initialize(self) -> None:
-        """
-        Inicializa as pools de conexão
-        """
-        async with self._lock:
-            if self._initialized:
-                return
-            
-            try:
-                # Cria pools para cada banco
-                for name, db in self.db_map.items():
-                    pool = ConnectionPool(
-                        host=settings.REDIS_HOST,
-                        port=settings.REDIS_PORT,
-                        db=db,
-                        max_connections=self.default_pool_size,
-                        socket_timeout=self.default_socket_timeout,
-                        socket_connect_timeout=self.default_socket_connect_timeout,
-                        decode_responses=True,
-                        retry_on_timeout=True
-                    )
-                    self._pools[name] = pool
-                    logger.info(f"Pool Redis criada para {name} (db={db})")
-                
-                self._initialized = True
-                logger.info("RedisManager inicializado com sucesso")
-                
-            except Exception as e:
-                logger.error(f"Erro ao inicializar RedisManager: {e}")
-                raise
-    
-    async def get_connection(self, name: str = 'default') -> Redis:
-        """
-        Obtém uma conexão do pool especificado
-        """
-        if not self._initialized:
-            await self.initialize()
-        
-        if name not in self._pools:
-            raise ValueError(f"Pool '{name}' não encontrada")
-        
-        try:
-            # Cria uma nova conexão se não existir
-            if name not in self._connections:
-                self._connections[name] = Redis(
-                    connection_pool=self._pools[name],
-                    decode_responses=True
-                )
-            
-            return self._connections[name]
-            
-        except Exception as e:
-            logger.error(f"Erro ao obter conexão Redis para {name}: {e}")
-            raise
-    
-    async def close(self, name: Optional[str] = None) -> None:
-        """
-        Fecha conexões e pools
-        """
-        async with self._lock:
-            try:
-                if name:
-                    # Fecha apenas a conexão e pool especificadas
-                    if name in self._connections:
-                        await self._connections[name].aclose()
-                        del self._connections[name]
-                    if name in self._pools:
-                        await self._pools[name].disconnect(inuse_connections=True)
-                        del self._pools[name]
-                    logger.info(f"Conexão Redis fechada para {name}")
-                else:
-                    # Fecha todas as conexões e pools
-                    for conn in self._connections.values():
-                        await conn.aclose()
-                    for pool in self._pools.values():
-                        await pool.disconnect(inuse_connections=True)
-                    self._connections.clear()
-                    self._pools.clear()
-                    self._initialized = False
-                    logger.info("Todas as conexões Redis fechadas")
-                    
-            except Exception as e:
-                logger.error(f"Erro ao fechar conexões Redis: {e}")
-                raise
-    
-    async def ping(self, name: str = 'default') -> bool:
-        """
-        Verifica se a conexão está ativa
-        """
-        try:
-            conn = await self.get_connection(name)
-            return await conn.ping()
-        except Exception as e:
-            logger.error(f"Erro ao verificar conexão Redis para {name}: {e}")
-            return False
-    
-    async def flushdb(self, name: str = 'default') -> None:
-        """
-        Limpa o banco de dados especificado
-        """
-        try:
-            conn = await self.get_connection(name)
-            await conn.flushdb()
-            logger.info(f"Banco Redis {name} limpo")
-        except Exception as e:
-            logger.error(f"Erro ao limpar banco Redis {name}: {e}")
-            raise
-    
-    async def __aenter__(self):
-        """Suporte para context manager assíncrono"""
-        if not self._initialized:
-            await self.initialize()
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Cleanup ao sair do context manager"""
-        await self.close()
+# Cliente Redis global
+redis_client: Optional[redis.Redis] = None
 
-redis_manager = RedisManager() 
+async def init_redis_pool() -> redis.Redis:
+    """
+    Inicializa o pool de conexões Redis
+    """
+    global redis_client
+    
+    try:
+        if redis_client is not None:
+            logger.info("Usando conexão Redis existente")
+            return redis_client
+            
+        logger.info("Inicializando nova conexão Redis")
+        config = get_redis_config()
+        
+        # Inicializa cliente diretamente
+        redis_client = redis.Redis(
+            host=config["host"],
+            port=config["port"],
+            db=config["db"],
+            password=config["password"],
+            decode_responses=True,
+            socket_timeout=config["socket_timeout"],
+            socket_connect_timeout=config["socket_connect_timeout"]
+        )
+        
+        # Testa conexão
+        await redis_client.ping()
+        logger.info("Conexão Redis estabelecida com sucesso")
+        
+        return redis_client
+        
+    except Exception as e:
+        logger.error(f"Erro ao inicializar Redis: {str(e)}")
+        raise
+
+async def get_redis() -> redis.Redis:
+    """
+    Retorna cliente Redis, inicializando se necessário
+    """
+    global redis_client
+    
+    if redis_client is None:
+        redis_client = await init_redis_pool()
+    
+    return redis_client
+
+async def close_redis_connection():
+    """
+    Fecha conexão com Redis
+    """
+    global redis_client
+    
+    if redis_client is not None:
+        logger.info("Fechando conexão Redis")
+        await redis_client.close()
+        redis_client = None
+
+async def check_redis_health() -> bool:
+    """
+    Verifica saúde da conexão Redis
+    """
+    try:
+        client = await get_redis()
+        await client.ping()
+        return True
+    except Exception as e:
+        logger.error(f"Erro ao verificar saúde do Redis: {str(e)}")
+        return False
+
+async def clear_redis_data():
+    """
+    Limpa todos os dados do Redis (usar com cautela!)
+    """
+    try:
+        client = await get_redis()
+        await client.flushdb()
+        logger.info("Dados Redis limpos com sucesso")
+    except Exception as e:
+        logger.error(f"Erro ao limpar dados Redis: {str(e)}")
+        raise
+
+async def get_redis_info() -> dict:
+    """
+    Retorna informações sobre o servidor Redis
+    """
+    try:
+        client = await get_redis()
+        info = await client.info()
+        return {
+            "version": info.get("redis_version"),
+            "used_memory": info.get("used_memory_human"),
+            "connected_clients": info.get("connected_clients"),
+            "uptime": info.get("uptime_in_seconds"),
+            "total_commands": info.get("total_commands_processed"),
+            "hits": info.get("keyspace_hits", 0),
+            "misses": info.get("keyspace_misses", 0),
+            "keys": {
+                db: info.get(f"db{db}", {}).get("keys", 0)
+                for db in range(16)
+                if f"db{db}" in info
+            }
+        }
+    except Exception as e:
+        logger.error(f"Erro ao obter informações Redis: {str(e)}")
+        raise 

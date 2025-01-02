@@ -1,42 +1,45 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from typing import List, Dict
-from ..dependencies import get_current_user, get_db
-from ..models.user import User
-from ..core.monitoring import get_system_metrics, get_application_metrics
+from fastapi import APIRouter, HTTPException, status
+import logging
+import psutil
 from ..core.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/monitoring",
     tags=["monitoring"]
 )
 
-@router.get("/metrics")
-async def get_metrics(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+@router.get("/system")
+async def get_system_metrics_endpoint():
     """
-    Retorna métricas do sistema e da aplicação
+    Retorna métricas do sistema
     """
-    if not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas administradores podem acessar as métricas"
-        )
-    
+    logger.info("Iniciando coleta de métricas do sistema")
     try:
-        system_metrics = await get_system_metrics()
-        app_metrics = await get_application_metrics(db)
-        
-        return {
-            "system": system_metrics,
-            "application": app_metrics
+        metrics = {
+            "cpu": {
+                "percent": psutil.cpu_percent(interval=1)
+            },
+            "memory": {
+                "total": psutil.virtual_memory().total,
+                "available": psutil.virtual_memory().available,
+                "percent": psutil.virtual_memory().percent
+            },
+            "disk": {
+                "total": psutil.disk_usage('/').total,
+                "used": psutil.disk_usage('/').used,
+                "free": psutil.disk_usage('/').free,
+                "percent": psutil.disk_usage('/').percent
+            }
         }
+        logger.info(f"Métricas coletadas com sucesso: {metrics}")
+        return metrics
     except Exception as e:
+        logger.error(f"Erro ao coletar métricas do sistema: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao coletar métricas: {str(e)}"
+            detail=f"Erro ao coletar métricas do sistema: {str(e)}"
         )
 
 @router.get("/health")

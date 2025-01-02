@@ -22,7 +22,17 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             'Cross-Origin-Resource-Policy': 'same-origin',
             'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
         }
-        self.public_paths = settings.RATE_LIMIT_EXCLUDE_PATHS
+        # Define caminhos públicos padrão
+        self.public_paths = [
+            "/api/v1/monitoring/health",
+            "/api/v1/monitoring/system",
+            "/api/v1/docs",
+            "/api/v1/openapi.json",
+            "/",
+            "/docs",
+            "/redoc",
+            "/openapi.json"
+        ]
 
     async def dispatch(self, request: Request, call_next) -> Response:
         # Inicia o timer para medir a latência
