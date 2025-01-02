@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from ..database.connection import Base
+from ..db.base_class import Base
 
 class AuditLog(Base):
     """Modelo de log de auditoria"""

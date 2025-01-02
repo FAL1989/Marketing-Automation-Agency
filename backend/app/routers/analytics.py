@@ -4,9 +4,9 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Union, Literal
 import random
 
-from ..core.security import get_current_user
+from ..auth.dependencies import get_current_user
 from ..models.user import User
-from ..database.connection import get_db
+from ..db.deps import get_db
 from ..models.content import Content
 from ..models.template import Template
 

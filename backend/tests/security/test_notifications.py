@@ -1,242 +1,117 @@
 import pytest
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
-from backend.app.core.notifications import NotificationManager
-import json
-import aiohttp
-import aiosmtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from unittest.mock import patch, MagicMock
+from ..conftest import test_client, test_user
+from ...app.core.config import settings
+from ...app.core.notifications import NotificationService
+from ...app.core.events import EventType
 
-@pytest.fixture
-def notification_manager():
-    """Fixture para criar uma instância do NotificationManager"""
-    return NotificationManager()
+def test_notification_service_init():
+    """Testa a inicialização do serviço de notificações"""
+    service = NotificationService()
+    assert service is not None
+    assert hasattr(service, 'send_email')
+    assert hasattr(service, 'send_slack')
 
-@pytest.fixture
-def sample_events():
-    """Fixture para criar eventos de exemplo"""
-    return [
-        {
-            "event_id": "test1",
-            "timestamp": datetime.utcnow(),
-            "event_type": "security.violation",
-            "severity": "critical",
-            "message": "Tentativa de acesso não autorizado",
-            "details": {
-                "ip": "192.168.1.1",
-                "user_agent": "test-agent",
-                "path": "/api/secure"
-            }
-        },
-        {
-            "event_id": "test2",
-            "timestamp": datetime.utcnow(),
-            "event_type": "system.error",
-            "severity": "critical",
-            "message": "Erro crítico no sistema",
-            "details": {
-                "component": "database",
-                "error": "Connection timeout"
-            }
+@patch('app.core.notifications.NotificationService.send_email')
+def test_security_event_email(mock_send_email, test_client):
+    """Testa o envio de email para eventos de segurança"""
+    # Simula uma tentativa de login inválida
+    test_client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        data={
+            "username": "wrong@example.com",
+            "password": "wrong_password"
         }
-    ]
+    )
+    
+    # Verifica se o email foi enviado
+    mock_send_email.assert_called_once()
+    call_args = mock_send_email.call_args[0]
+    assert "security alert" in call_args[0].lower()
+    assert "login attempt" in call_args[1].lower()
 
-@pytest.mark.asyncio
-async def test_notify_critical_events(notification_manager, sample_events):
-    """Testa o envio de notificações para eventos críticos"""
-    # Mock das funções de notificação
-    notification_manager._send_slack_notification = AsyncMock()
-    notification_manager._send_email_notification = AsyncMock()
+@patch('app.core.notifications.NotificationService.send_slack')
+def test_security_event_slack(mock_send_slack, test_client):
+    """Testa o envio de notificação Slack para eventos de segurança"""
+    # Simula múltiplas tentativas de login
+    for _ in range(5):
+        test_client.post(
+            f"{settings.API_V1_STR}/auth/login",
+            data={
+                "username": "wrong@example.com",
+                "password": "wrong_password"
+            }
+        )
     
-    # Executa a notificação
-    await notification_manager.notify_critical_events(sample_events)
-    
-    # Verifica se as funções foram chamadas
-    notification_manager._send_slack_notification.assert_called_once_with(sample_events)
-    notification_manager._send_email_notification.assert_called_once_with(sample_events)
+    # Verifica se a notificação Slack foi enviada
+    mock_send_slack.assert_called()
+    call_args = mock_send_slack.call_args[0]
+    assert "multiple failed login attempts" in call_args[0].lower()
 
-@pytest.mark.asyncio
-async def test_slack_notification(notification_manager, sample_events):
-    """Testa o envio de notificações para o Slack"""
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_post.return_value.__aenter__.return_value = mock_response
+def test_rate_limit_notification(test_client):
+    """Testa notificações de rate limit"""
+    with patch('app.core.notifications.NotificationService.send_email') as mock_email:
+        # Força rate limit
+        for _ in range(settings.RATE_LIMIT_PER_SECOND + 1):
+            test_client.get("/")
         
-        await notification_manager._send_slack_notification(sample_events)
-        
-        # Verifica se a chamada foi feita corretamente
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args[1]
-        
-        # Verifica o formato da mensagem
-        message = call_args["json"]
-        assert "blocks" in message
-        blocks = message["blocks"]
-        
-        # Verifica o cabeçalho
-        assert blocks[0]["type"] == "header"
-        assert "🚨" in blocks[0]["text"]["text"]
-        assert str(len(sample_events)) in blocks[0]["text"]["text"]
-        
-        # Verifica os detalhes dos eventos
-        event_blocks = [b for b in blocks if b.get("type") == "section"]
-        assert len(event_blocks) > 0
-        
-        # Verifica se os campos importantes estão presentes
-        for event in sample_events:
-            event_text = str(message)
-            assert event["event_id"] in event_text
-            assert event["event_type"] in event_text
-            assert event["message"] in event_text
+        # Verifica notificação
+        mock_email.assert_called_once()
+        call_args = mock_email.call_args[0]
+        assert "rate limit exceeded" in call_args[1].lower()
 
-@pytest.mark.asyncio
-async def test_email_notification(notification_manager, sample_events):
-    """Testa o envio de notificações por email"""
-    with patch("aiosmtplib.send") as mock_send:
-        await notification_manager._send_email_notification(sample_events)
+def test_suspicious_activity_notification(test_client):
+    """Testa notificações de atividade suspeita"""
+    with patch('app.core.notifications.NotificationService.send_slack') as mock_slack:
+        # Simula atividade suspeita (tentativa de SQL injection)
+        test_client.post(
+            f"{settings.API_V1_STR}/auth/login",
+            data={
+                "username": "admin' OR '1'='1",
+                "password": "anything"
+            }
+        )
         
-        # Verifica se o email foi enviado
-        mock_send.assert_called_once()
+        # Verifica notificação
+        mock_slack.assert_called_once()
+        call_args = mock_slack.call_args[0]
+        assert "suspicious activity" in call_args[0].lower()
+
+def test_notification_throttling():
+    """Testa o throttling de notificações"""
+    service = NotificationService()
+    
+    # Tenta enviar múltiplas notificações rapidamente
+    with patch('app.core.notifications.NotificationService.send_email') as mock_email:
+        for _ in range(10):
+            service.notify_security_event(
+                EventType.FAILED_LOGIN,
+                {"user": "test@example.com"}
+            )
         
-        # Verifica o formato do email
-        call_args = mock_send.call_args[1]
-        assert "hostname" in call_args
-        assert "port" in call_args
-        assert "username" in call_args
-        assert "password" in call_args
-        assert "use_tls" in call_args
+        # Deve ter menos chamadas que tentativas devido ao throttling
+        assert mock_email.call_count < 10
 
-def test_format_slack_message(notification_manager, sample_events):
-    """Testa a formatação de mensagens para o Slack"""
-    blocks = notification_manager._format_slack_message(sample_events)
+def test_notification_formatting():
+    """Testa a formatação das notificações"""
+    service = NotificationService()
     
-    # Verifica a estrutura básica
-    assert isinstance(blocks, list)
-    assert len(blocks) > 0
-    
-    # Verifica o cabeçalho
-    header = blocks[0]
-    assert header["type"] == "header"
-    assert "text" in header
-    assert str(len(sample_events)) in header["text"]["text"]
-    
-    # Verifica o resumo
-    summary = blocks[1]
-    assert summary["type"] == "section"
-    assert "Período" in summary["text"]["text"]
-    assert "Total de Eventos" in summary["text"]["text"]
-    
-    # Verifica os eventos
-    event_blocks = []
-    for block in blocks:
-        if block["type"] == "section" and "fields" in block:
-            event_blocks.append(block)
-            
-    assert len(event_blocks) >= len(sample_events)
-
-def test_format_email_message(notification_manager, sample_events):
-    """Testa a formatação de mensagens de email"""
-    msg = notification_manager._format_email_message(sample_events)
-    
-    # Verifica o tipo da mensagem
-    assert isinstance(msg, MIMEMultipart)
-    
-    # Verifica os cabeçalhos
-    assert "[AUDITORIA]" in msg["Subject"]
-    assert str(len(sample_events)) in msg["Subject"]
-    assert msg["To"] == notification_manager.alert_email
-    
-    # Verifica o corpo
-    body = msg.get_payload()[0].get_payload()
-    assert isinstance(body, str)
-    
-    # Verifica o conteúdo
-    assert "EVENTOS CRÍTICOS DE AUDITORIA" in body
-    assert "RESUMO" in body
-    assert "DETALHES DOS EVENTOS" in body
-    
-    # Verifica se os eventos estão incluídos
-    for event in sample_events:
-        assert event["event_id"] in body
-        assert event["event_type"] in body
-        assert event["message"] in body
-
-def test_format_time_range(notification_manager, sample_events):
-    """Testa a formatação do intervalo de tempo"""
-    time_range = notification_manager._format_time_range(sample_events)
-    
-    # Verifica o formato
-    assert isinstance(time_range, str)
-    assert "até" in time_range
-    
-    # Verifica se as datas são válidas
-    start, end = time_range.split(" até ")
-    assert datetime.strptime(start.strip(), "%Y-%m-%d %H:%M:%S")
-    assert datetime.strptime(end.strip(), "%Y-%m-%d %H:%M:%S")
-
-def test_format_details(notification_manager):
-    """Testa a formatação de detalhes dos eventos"""
-    # Testa com detalhes vazios
-    empty_details = notification_manager._format_details({})
-    assert empty_details == "Nenhum detalhe adicional"
-    
-    # Testa com detalhes simples
-    details = {
-        "ip": "192.168.1.1",
-        "user": "test_user",
-        "action": "login"
-    }
-    formatted = notification_manager._format_details(details)
-    
-    # Verifica se todas as chaves e valores estão presentes
-    for key, value in details.items():
-        assert f"{key}: {value}" in formatted
+    with patch('app.core.notifications.NotificationService.send_email') as mock_email:
+        # Envia notificação com dados complexos
+        service.notify_security_event(
+            EventType.SUSPICIOUS_ACTIVITY,
+            {
+                "ip": "1.2.3.4",
+                "user_agent": "test-agent",
+                "path": "/api/test",
+                "method": "POST"
+            }
+        )
         
-    # Verifica se está formatado corretamente
-    lines = formatted.split("\n")
-    assert len(lines) == len(details)
-
-@pytest.mark.asyncio
-async def test_error_handling(notification_manager, sample_events):
-    """Testa o tratamento de erros nas notificações"""
-    # Simula erro no Slack
-    with patch("aiohttp.ClientSession.post", side_effect=Exception("Slack Error")):
-        # Não deve lançar exceção
-        await notification_manager.notify_critical_events(sample_events)
-        
-    # Simula erro no email
-    with patch("aiosmtplib.send", side_effect=Exception("Email Error")):
-        # Não deve lançar exceção
-        await notification_manager.notify_critical_events(sample_events)
-
-@pytest.mark.asyncio
-async def test_empty_events(notification_manager):
-    """Testa o comportamento com lista vazia de eventos"""
-    # Mock das funções de notificação
-    notification_manager._send_slack_notification = AsyncMock()
-    notification_manager._send_email_notification = AsyncMock()
-    
-    # Tenta notificar sem eventos
-    await notification_manager.notify_critical_events([])
-    
-    # Verifica se nenhuma notificação foi enviada
-    notification_manager._send_slack_notification.assert_not_called()
-    notification_manager._send_email_notification.assert_not_called()
-
-@pytest.mark.asyncio
-async def test_notification_rate_limiting(notification_manager, sample_events):
-    """Testa o rate limiting das notificações"""
-    # Simula múltiplas chamadas rápidas
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_response = AsyncMock()
-        mock_response.status = 429  # Too Many Requests
-        mock_post.return_value.__aenter__.return_value = mock_response
-        
-        # Tenta enviar várias notificações
-        for _ in range(5):
-            await notification_manager._send_slack_notification(sample_events)
-            
-        # Verifica se todas as tentativas foram feitas
-        assert mock_post.call_count == 5 
+        # Verifica formatação
+        call_args = mock_email.call_args[0]
+        message = call_args[1]
+        assert "IP: 1.2.3.4" in message
+        assert "User-Agent: test-agent" in message
+        assert "Path: /api/test" in message
+        assert "Method: POST" in message 

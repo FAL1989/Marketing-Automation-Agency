@@ -1,0 +1,65 @@
+{{ define "slack.default.title" }}
+{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }} - {{ .GroupLabels.alertname }}
+{{ end }}
+
+{{ define "slack.default.text" }}
+{{ if gt (len .Alerts.Firing) 0 }}
+*🔥 Active Alerts*
+{{ range .Alerts.Firing }}
+*Alert:* {{ .Annotations.summary }}
+*Description:* {{ .Annotations.description }}
+*Severity:* {{ .Labels.severity }}
+*Started:* {{ .StartsAt }}
+{{ range .Labels.SortedPairs }}{{ if and (ne .Name "alertname") (ne .Name "severity") }}
+*{{ .Name }}:* {{ .Value }}{{ end }}{{ end }}
+
+{{ end }}
+{{ end }}
+{{ if gt (len .Alerts.Resolved) 0 }}
+*✅ Resolved Alerts*
+{{ range .Alerts.Resolved }}
+*Alert:* {{ .Annotations.summary }}
+*Description:* {{ .Annotations.description }}
+*Severity:* {{ .Labels.severity }}
+*Started:* {{ .StartsAt }}
+*Resolved:* {{ .EndsAt }}
+
+{{ end }}
+{{ end }}
+{{ end }}
+
+{{ define "slack.default.fallback" }}
+{{ template "slack.default.title" . }}
+{{ template "slack.default.text" . }}
+{{ end }}
+
+{{ define "slack.default.pretext" }}
+{{ if gt (len .Alerts.Firing) 0 }}Security Alert: {{ .Alerts.Firing | len }} active alert{{ if gt (len .Alerts.Firing) 1 }}s{{ end }}{{ end }}
+{{ if gt (len .Alerts.Resolved) 0 }}{{ if gt (len .Alerts.Firing) 0 }} and {{ end }}{{ .Alerts.Resolved | len }} resolved alert{{ if gt (len .Alerts.Resolved) 1 }}s{{ end }}{{ end }}
+{{ end }}
+
+{{ define "slack.default.titlelink" }}
+{{ .ExternalURL }}/#/alerts?receiver={{ .Receiver }}
+{{ end }}
+
+{{ define "slack.default.iconemoji" }}
+{{ if eq .Status "firing" }}:rotating_light:{{ else }}:white_check_mark:{{ end }}
+{{ end }}
+
+{{ define "slack.default.color" }}
+{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}
+{{ end }}
+
+{{ define "slack.default.footer" }}
+<{{ settings.FRONTEND_URL }}/security-dashboard|View Security Dashboard> | AI Agency Security Monitoring
+{{ end }}
+
+{{ define "slack.default.actions" }}
+[
+  {
+    "type": "button",
+    "text": "View Dashboard",
+    "url": "{{ settings.FRONTEND_URL }}/security-dashboard"
+  }
+]
+{{ end }} 

@@ -1,6 +1,6 @@
 import pytest
-from backend.app.core.monitoring import REGISTRY
-from backend.app.core import monitoring
+from app.core.monitoring import REGISTRY
+from app.core import monitoring
 
 def test_failed_login_metrics():
     """Testa métricas de login falho"""

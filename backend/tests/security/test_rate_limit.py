@@ -1,108 +1,124 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from backend.app.middleware.rate_limit import RateLimitMiddleware
-from backend.app.core.monitoring import setup_monitoring
-import redis.asyncio as redis
-from unittest.mock import AsyncMock, patch
-from typing import Generator, Dict, Any
+from app.middleware.rate_limit import RateLimitMiddleware
+from app.core.config import settings
+import redis
+import time
 
 @pytest.fixture
-def mock_redis() -> AsyncMock:
-    mock = AsyncMock(spec=redis.Redis)
-    mock.exists.return_value = False
-    mock.incr.return_value = 1
-    mock.expire.return_value = True
-    mock.set.return_value = True
-    return mock
+def redis_client():
+    client = redis.Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        db=settings.REDIS_RATELIMIT_DB,
+        decode_responses=True
+    )
+    # Limpa o banco antes dos testes
+    client.flushdb()
+    return client
 
 @pytest.fixture
-def custom_limits() -> Dict[str, tuple[int, int]]:
-    return {
-        "/test": (2, 60),  # 2 requests per minute
-        "/api/v1": (5, 60)  # 5 requests per minute
-    }
-
-@pytest.fixture
-def test_app(mock_redis: AsyncMock, custom_limits: Dict[str, tuple[int, int]]) -> TestClient:
+def app():
     app = FastAPI()
-    app.add_middleware(RateLimitMiddleware, redis_client=mock_redis, limits=custom_limits)
-    setup_monitoring(app)
+    app.add_middleware(RateLimitMiddleware)
     
     @app.get("/test")
-    async def test_endpoint() -> dict:
+    def test_route():
         return {"message": "test"}
-        
-    @app.get("/api/v1")
-    async def api_endpoint() -> dict:
-        return {"message": "api"}
-        
+    
+    @app.get("/metrics")
+    def metrics_route():
+        return {"metrics": "data"}
+    
+    return app
+
+@pytest.fixture
+def client(app):
     return TestClient(app)
 
-def test_basic_rate_limit(test_app: TestClient, mock_redis: AsyncMock) -> None:
-    """Testa o rate limit básico"""
-    # Primeira requisição (permitida)
-    response = test_app.get("/test")
+def test_rate_limit_headers(client):
+    """Testa se os headers de rate limit estão presentes"""
+    response = client.get("/test")
     assert response.status_code == 200
     
-    # Segunda requisição (permitida)
-    response = test_app.get("/test")
-    assert response.status_code == 200
+    # Verifica headers de rate limit
+    assert "X-Rate-Limit-Limit" in response.headers
+    assert "X-Rate-Limit-Remaining" in response.headers
+    assert "X-Rate-Limit-Reset" in response.headers
     
-    # Simula excesso de requisições
-    mock_redis.incr.return_value = 3
-    response = test_app.get("/test")
-    assert response.status_code == 429
-    response_data = response.json()
-    assert "detail" in response_data
-    assert "too many requests" in response_data["detail"].lower()
+    # Verifica valores dos headers
+    assert int(response.headers["X-Rate-Limit-Limit"]) == settings.RATE_LIMIT_PER_MINUTE
+    assert int(response.headers["X-Rate-Limit-Remaining"]) == settings.RATE_LIMIT_PER_MINUTE - 1
+    assert int(response.headers["X-Rate-Limit-Reset"]) == 60
 
-def test_block_after_limit(test_app: TestClient, mock_redis: AsyncMock) -> None:
-    """Testa bloqueio após exceder limite"""
-    mock_redis.exists.return_value = True
+def test_rate_limit_exceeded(client, redis_client):
+    """Testa se o rate limit é aplicado corretamente"""
+    # Faz requisições até atingir o limite
+    for i in range(settings.RATE_LIMIT_PER_MINUTE):
+        response = client.get("/test")
+        assert response.status_code == 200
+        remaining = int(response.headers["X-Rate-Limit-Remaining"])
+        assert remaining == settings.RATE_LIMIT_PER_MINUTE - (i + 1)
     
-    response = test_app.get("/test")
+    # Próxima requisição deve falhar
+    response = client.get("/test")
     assert response.status_code == 429
-    response_data = response.json()
-    assert "detail" in response_data
-    assert "temporarily blocked" in response_data["detail"].lower()
+    assert "Too many requests" in response.text
 
-@patch('backend.app.core.monitoring.log_rate_limit_event')
-def test_rate_limit_monitoring(
-    mock_log: AsyncMock,
-    test_app: TestClient,
-    mock_redis: AsyncMock
-) -> None:
-    """Testa integração com monitoramento"""
-    # Força exceder limite
-    mock_redis.incr.return_value = 61
-    response = test_app.get("/test")
-    
-    assert response.status_code == 429
-    mock_log.assert_called_once()
-    
-def test_different_paths(test_app: TestClient, mock_redis: AsyncMock) -> None:
-    """Testa limites diferentes por path"""
-    # Test path /test (limite 2)
-    response = test_app.get("/test")
-    assert response.status_code == 200
-    
-    mock_redis.incr.return_value = 3
-    response = test_app.get("/test")
-    assert response.status_code == 429
-    
-    # Test path /api/v1 (limite 5)
-    mock_redis.incr.return_value = 1
-    response = test_app.get("/api/v1")
-    assert response.status_code == 200
-    
-    mock_redis.incr.return_value = 6
-    response = test_app.get("/api/v1")
-    assert response.status_code == 429
+def test_rate_limit_excluded_paths(client):
+    """Testa se os caminhos excluídos não são afetados pelo rate limit"""
+    # Faz muitas requisições em um caminho excluído
+    for _ in range(settings.RATE_LIMIT_PER_MINUTE + 10):
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        # Não deve ter headers de rate limit
+        assert "X-Rate-Limit-Limit" not in response.headers
 
-def test_redis_error_handling(test_app: TestClient, mock_redis: AsyncMock) -> None:
-    """Testa tratamento de erros do Redis"""
-    mock_redis.incr.side_effect = redis.RedisError("Connection error")
+def test_rate_limit_different_paths(client):
+    """Testa se o rate limit é aplicado separadamente para diferentes caminhos"""
+    # Atinge o limite em um caminho
+    for _ in range(settings.RATE_LIMIT_PER_MINUTE):
+        response = client.get("/test")
+        assert response.status_code == 200
     
-    response = test_app.get("/test")
-    assert response.status_code == 200  # Fail open 
+    # Próxima requisição no mesmo caminho deve falhar
+    response = client.get("/test")
+    assert response.status_code == 429
+    
+    # Mas outro caminho deve funcionar
+    response = client.get("/test2")
+    assert response.status_code == 200
+
+def test_rate_limit_reset(client, redis_client):
+    """Testa se o rate limit é resetado após o período de janela"""
+    # Faz algumas requisições
+    for _ in range(5):
+        response = client.get("/test")
+        assert response.status_code == 200
+    
+    # Espera o tempo da janela
+    time.sleep(60)
+    
+    # Deve poder fazer requisições novamente
+    response = client.get("/test")
+    assert response.status_code == 200
+    assert int(response.headers["X-Rate-Limit-Remaining"]) == settings.RATE_LIMIT_PER_MINUTE - 1
+
+def test_rate_limit_with_forwarded_ip(client):
+    """Testa rate limit com IP forwarded"""
+    headers = {"X-Forwarded-For": "1.2.3.4"}
+    
+    # Faz requisições até o limite
+    for i in range(settings.RATE_LIMIT_PER_MINUTE):
+        response = client.get("/test", headers=headers)
+        assert response.status_code == 200
+    
+    # Próxima requisição deve falhar
+    response = client.get("/test", headers=headers)
+    assert response.status_code == 429
+    
+    # Mas deve funcionar com outro IP
+    headers = {"X-Forwarded-For": "5.6.7.8"}
+    response = client.get("/test", headers=headers)
+    assert response.status_code == 200 

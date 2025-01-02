@@ -1,78 +1,68 @@
 import pytest
-from fastapi.testclient import TestClient
-from backend.app.main import create_app
-from backend.app.core import monitoring
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timedelta
 
-@pytest.fixture
-def test_client(mock_redis):
-    """Cria um cliente de teste com Redis mockado"""
-    app = create_app()
-    return TestClient(app)
+from app.core.security import create_access_token
+from app.models.user import User
+from app.core.config import settings
 
-def test_login_success(test_client):
-    """Testa login com sucesso"""
-    response = test_client.post(
-        "/auth/login",
+@pytest.mark.asyncio
+async def test_login_success(test_client: AsyncClient, test_user: User):
+    """
+    Testa o login com credenciais válidas
+    """
+    response = await test_client.post(
+        "/api/v1/auth/login",
         data={
-            "username": "test_user",
-            "password": "correct_password"
+            "username": test_user.email,
+            "password": "test123"
         }
     )
     assert response.status_code == 200
-    assert "access_token" in response.json()
-    assert "refresh_token" in response.json()
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
 
-def test_login_wrong_password(test_client):
-    """Testa login com senha incorreta"""
-    response = test_client.post(
-        "/auth/login",
+@pytest.mark.asyncio
+async def test_login_invalid_password(test_client: AsyncClient, test_user: User):
+    """
+    Testa o login com senha inválida
+    """
+    response = await test_client.post(
+        "/api/v1/auth/login",
         data={
-            "username": "test_user",
+            "username": test_user.email,
             "password": "wrong_password"
         }
     )
     assert response.status_code == 401
 
-def test_protected_endpoint_without_token(test_client):
-    """Testa acesso a endpoint protegido sem token"""
-    response = test_client.get("/auth/me")
+@pytest.mark.asyncio
+async def test_get_current_user(test_client: AsyncClient, test_user: User):
+    """
+    Testa a obtenção do usuário atual com token válido
+    """
+    access_token = create_access_token(
+        data={"sub": test_user.email},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    
+    response = await test_client.get(
+        "/api/v1/users/me",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["email"] == test_user.email
+
+@pytest.mark.asyncio
+async def test_get_current_user_invalid_token(test_client: AsyncClient):
+    """
+    Testa a obtenção do usuário atual com token inválido
+    """
+    response = await test_client.get(
+        "/api/v1/users/me",
+        headers={"Authorization": "Bearer invalid_token"}
+    )
     assert response.status_code == 401
-
-def test_protected_endpoint_with_token(test_client):
-    """Testa acesso a endpoint protegido com token"""
-    # Primeiro faz login para obter o token
-    login_response = test_client.post(
-        "/auth/login",
-        data={
-            "username": "test_user",
-            "password": "correct_password"
-        }
-    )
-    token = login_response.json()["access_token"]
-    
-    # Tenta acessar endpoint protegido
-    response = test_client.get(
-        "/auth/me",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    assert response.status_code == 200
-
-def test_refresh_token(test_client):
-    """Testa renovação de token"""
-    # Primeiro faz login para obter os tokens
-    login_response = test_client.post(
-        "/auth/login",
-        data={
-            "username": "test_user",
-            "password": "correct_password"
-        }
-    )
-    refresh_token = login_response.json()["refresh_token"]
-    
-    # Tenta renovar o token
-    response = test_client.post(
-        "/auth/refresh",
-        json={"refresh_token": refresh_token}
-    )
-    assert response.status_code == 200
-    assert "access_token" in response.json()

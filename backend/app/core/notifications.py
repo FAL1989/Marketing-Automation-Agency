@@ -1,204 +1,168 @@
-from typing import List, Dict, Any, Optional
-import aiohttp
-import aiosmtplib
+from typing import Optional, Dict, Any
+import logging
+import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
-import logging
+import httpx
+from datetime import datetime, timedelta
 from .config import settings
+from .events import EventType
 
 logger = logging.getLogger(__name__)
 
-class NotificationManager:
-    """Gerenciador de notificações para eventos críticos"""
-    
+class NotificationService:
+    """
+    Serviço para envio de notificações
+    """
     def __init__(self):
-        self.slack_webhook_url = settings.SLACK_WEBHOOK_URL
-        self.alert_email = settings.AUDIT_ALERT_EMAIL
-        self.alert_slack_channel = settings.AUDIT_ALERT_SLACK_CHANNEL
+        self.smtp_enabled = bool(settings.SMTP_HOST)
+        self.slack_enabled = bool(settings.SLACK_WEBHOOK_URL)
+        self._last_notifications = {}
+        self._throttle_window = timedelta(minutes=5)
+        self._throttle_limit = 3
+    
+    def _should_throttle(self, event_type: str) -> bool:
+        """
+        Verifica se a notificação deve ser throttled
+        """
+        now = datetime.utcnow()
+        if event_type not in self._last_notifications:
+            self._last_notifications[event_type] = []
+            return False
         
-    async def notify_critical_events(self, events: List[Dict[str, Any]]):
-        """Notifica sobre eventos críticos através de múltiplos canais"""
-        if not events:
+        # Remove notificações antigas
+        self._last_notifications[event_type] = [
+            ts for ts in self._last_notifications[event_type]
+            if now - ts < self._throttle_window
+        ]
+        
+        # Verifica limite
+        if len(self._last_notifications[event_type]) >= self._throttle_limit:
+            return True
+        
+        self._last_notifications[event_type].append(now)
+        return False
+    
+    def _format_event_data(self, event_data: Dict[str, Any]) -> str:
+        """
+        Formata os dados do evento para exibição
+        """
+        lines = []
+        for key, value in event_data.items():
+            if isinstance(value, dict):
+                lines.append(f"{key.title()}:")
+                for sub_key, sub_value in value.items():
+                    lines.append(f"  {sub_key.title()}: {sub_value}")
+            else:
+                lines.append(f"{key.title()}: {value}")
+        return "\n".join(lines)
+    
+    async def send_email(self, subject: str, body: str, to_email: str):
+        """
+        Envia um email
+        """
+        if not self.smtp_enabled:
+            logger.warning("SMTP não configurado")
             return
-            
-        try:
-            await self._send_slack_notification(events)
-        except Exception as e:
-            logger.error(f"Erro ao enviar notificação para o Slack: {e}")
-            
-        try:
-            await self._send_email_notification(events)
-        except Exception as e:
-            logger.error(f"Erro ao enviar notificação por email: {e}")
-            
-    async def _send_slack_notification(self, events: List[Dict[str, Any]]):
-        """Envia notificação para o Slack"""
-        if not self.slack_webhook_url:
-            return
-            
-        blocks = self._format_slack_message(events)
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                self.slack_webhook_url,
-                json={"blocks": blocks}
-            ) as response:
-                if response.status not in (200, 201):
-                    logger.error(f"Erro ao enviar para Slack: {response.status}")
-                    
-    def _format_slack_message(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Formata a mensagem para o Slack"""
-        blocks = []
-        
-        # Cabeçalho
-        blocks.append({
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": f"🚨 {len(events)} Eventos Críticos Detectados"
-            }
-        })
-        
-        # Resumo
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Período:* {self._format_time_range(events)}\n"
-                       f"*Total de Eventos:* {len(events)}"
-            }
-        })
-        
-        blocks.append({"type": "divider"})
-        
-        # Eventos
-        for event in events:
-            blocks.extend(self._format_slack_event(event))
-            
-        return blocks
-        
-    def _format_slack_event(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Formata um evento individual para o Slack"""
-        blocks = []
-        
-        # Cabeçalho do evento
-        blocks.append({
-            "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"*Tipo:* {event['event_type']}\n*Severidade:* {event['severity']}"
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": f"*Timestamp:* {event['timestamp']}\n*ID:* {event['event_id']}"
-                }
-            ]
-        })
-        
-        # Mensagem do evento
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Mensagem:* {event['message']}"
-            }
-        })
-        
-        # Detalhes adicionais
-        if event.get("details"):
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Detalhes:*\n```{self._format_details(event['details'])}```"
-                }
-            })
-            
-        blocks.append({"type": "divider"})
-        return blocks
-        
-    async def _send_email_notification(self, events: List[Dict[str, Any]]):
-        """Envia notificação por email"""
-        if not self.alert_email:
-            return
-            
-        msg = self._format_email_message(events)
         
         try:
-            await aiosmtplib.send(
-                msg,
-                hostname=settings.SMTP_HOST,
-                port=settings.SMTP_PORT,
-                username=settings.SMTP_USERNAME,
-                password=settings.SMTP_PASSWORD,
-                use_tls=settings.SMTP_USE_TLS
-            )
-        except Exception as e:
-            logger.error(f"Erro ao enviar email: {e}")
-            raise
+            msg = MIMEMultipart()
+            msg["From"] = settings.SMTP_FROM_EMAIL
+            msg["To"] = to_email
+            msg["Subject"] = subject
             
-    def _format_email_message(self, events: List[Dict[str, Any]]) -> MIMEMultipart:
-        """Formata a mensagem de email"""
-        msg = MIMEMultipart()
-        msg["Subject"] = f"[AUDITORIA] {len(events)} Eventos Críticos Detectados"
-        msg["From"] = settings.SMTP_FROM_EMAIL
-        msg["To"] = self.alert_email
-        
-        body = self._format_email_body(events)
-        msg.attach(MIMEText(body, "plain"))
-        
-        return msg
-        
-    def _format_email_body(self, events: List[Dict[str, Any]]) -> str:
-        """Formata o corpo do email"""
-        body = f"""EVENTOS CRÍTICOS DE AUDITORIA
-Gerado em: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
-
-RESUMO
-------
-Total de Eventos: {len(events)}
-Período: {self._format_time_range(events)}
-
-DETALHES DOS EVENTOS
--------------------
-"""
-        
-        for event in events:
-            body += f"""
-Evento ID: {event['event_id']}
-Tipo: {event['event_type']}
-Severidade: {event['severity']}
-Timestamp: {event['timestamp']}
-Mensagem: {event['message']}
-
-"""
-            if event.get("details"):
-                body += f"Detalhes:\n{self._format_details(event['details'])}\n"
+            msg.attach(MIMEText(body, "plain"))
+            
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+                if settings.SMTP_TLS:
+                    server.starttls()
+                if settings.SMTP_USER and settings.SMTP_PASSWORD:
+                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
                 
-            body += "=" * 50 + "\n"
+            logger.info(f"Email enviado para {to_email}")
             
-        return body
+        except Exception as e:
+            logger.error(f"Erro ao enviar email: {str(e)}")
+    
+    async def send_slack(self, message: str, channel: Optional[str] = None):
+        """
+        Envia uma mensagem para o Slack
+        """
+        if not self.slack_enabled:
+            logger.warning("Slack não configurado")
+            return
         
-    def _format_time_range(self, events: List[Dict[str, Any]]) -> str:
-        """Formata o intervalo de tempo dos eventos"""
-        timestamps = [event["timestamp"] for event in events]
-        start = min(timestamps)
-        end = max(timestamps)
-        
-        return f"{start.strftime('%Y-%m-%d %H:%M:%S')} até {end.strftime('%Y-%m-%d %H:%M:%S')}"
-        
-    def _format_details(self, details: Dict[str, Any]) -> str:
-        """Formata detalhes adicionais do evento"""
-        if not details:
-            return "Nenhum detalhe adicional"
+        try:
+            payload = {
+                "text": message,
+                "channel": channel
+            }
             
-        formatted = []
-        for key, value in details.items():
-            formatted.append(f"{key}: {value}")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    settings.SLACK_WEBHOOK_URL,
+                    json=payload
+                )
+                response.raise_for_status()
+                
+            logger.info("Mensagem enviada para o Slack")
             
-        return "\n".join(formatted)
+        except Exception as e:
+            logger.error(f"Erro ao enviar mensagem para o Slack: {str(e)}")
+    
+    async def notify_security_event(self, event_type: EventType, event_data: Dict[str, Any]):
+        """
+        Notifica sobre um evento de segurança
+        """
+        if self._should_throttle(str(event_type)):
+            logger.info(f"Notificação throttled para evento {event_type}")
+            return
+        
+        subject = f"Alerta de Segurança: {event_type.value}"
+        body = f"""
+        Um evento de segurança foi detectado:
+        
+        Tipo: {event_type.value}
+        Data/Hora: {datetime.utcnow().isoformat()}
+        
+        Detalhes:
+        {self._format_event_data(event_data)}
+        """
+        
+        # Envia email
+        await self.send_email(subject, body, settings.AUDIT_ALERT_EMAIL)
+        
+        # Envia para o Slack se for um evento crítico
+        if event_data.get("severity") == "critical":
+            await self.send_slack(f"🚨 {subject}\n{body}")
 
-# Instância global do gerenciador de notificações
-notification_manager = NotificationManager() 
+    async def send_event(self, event_type: EventType, event_data: Dict[str, Any]):
+        """
+        Envia um evento para os canais configurados
+        """
+        if self._should_throttle(str(event_type)):
+            logger.info(f"Evento throttled: {event_type}")
+            return
+        
+        logger.info(f"Enviando evento: {event_type}", extra=event_data)
+        
+        # Formata a mensagem
+        message = f"""
+        Evento: {event_type.value}
+        Data/Hora: {datetime.utcnow().isoformat()}
+        
+        Detalhes:
+        {self._format_event_data(event_data)}
+        """
+        
+        # Envia para o Slack se configurado
+        if self.slack_enabled:
+            await self.send_slack(message)
+        
+        # Envia por email se configurado
+        if self.smtp_enabled:
+            subject = f"Evento do Sistema: {event_type.value}"
+            await self.send_email(subject, message, settings.AUDIT_ALERT_EMAIL)
+
+notification_service = NotificationService() 

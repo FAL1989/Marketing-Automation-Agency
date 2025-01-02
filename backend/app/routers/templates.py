@@ -1,117 +1,137 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
-from ..core.security import get_current_user
+from ..dependencies import get_current_user
 from ..models.user import User
 from ..models.template import Template
 from ..schemas.template import TemplateCreate, TemplateUpdate, Template as TemplateSchema
-from ..database.connection import get_db
+from ..db.deps import get_db
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/templates",
+    tags=["templates"]
+)
 
 @router.post("", response_model=TemplateSchema)
 async def create_template(
     template: TemplateCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Cria um novo template"""
-    db_template = Template(
-        name=template.name,
-        description=template.description,
-        content=template.content,
-        parameters=template.parameters,
-        is_public=template.is_public,
-        user_id=current_user.id
+    """
+    Cria um novo template
+    """
+    # Verifica se já existe um template com o mesmo nome para o usuário
+    existing_template = await db.execute(
+        "SELECT * FROM templates WHERE name = %s AND user_id = %s",
+        (template.name, current_user.id)
     )
-    db.add(db_template)
-    try:
-        db.commit()
-        db.refresh(db_template)
-        return db_template
-    except Exception as e:
-        db.rollback()
+    existing_template = existing_template.fetchone()
+    
+    if existing_template:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Template com este nome já existe"
         )
+    
+    db_template = Template(**template.dict(), user_id=current_user.id)
+    db.add(db_template)
+    await db.commit()
+    await db.refresh(db_template)
+    return db_template
 
 @router.get("", response_model=List[TemplateSchema])
 async def list_templates(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Lista os templates disponíveis"""
-    templates = db.query(Template).filter(
-        (Template.user_id == current_user.id) | 
-        (Template.is_public == True)
-    ).all()
-    return templates
+    """
+    Lista todos os templates do usuário
+    """
+    templates = await db.execute(
+        "SELECT * FROM templates WHERE user_id = %s",
+        (current_user.id,)
+    )
+    templates = templates.fetchall()
+    return [TemplateSchema(**template) for template in templates]
 
 @router.get("/{template_id}", response_model=TemplateSchema)
 async def get_template(
     template_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Obtém um template específico"""
-    template = db.query(Template).filter(Template.id == template_id).first()
+    """
+    Obtém um template específico
+    """
+    template = await db.execute(
+        "SELECT * FROM templates WHERE id = %s AND user_id = %s",
+        (template_id, current_user.id)
+    )
+    template = template.fetchone()
     if not template:
         raise HTTPException(status_code=404, detail="Template não encontrado")
-    if not template.is_public and template.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Acesso não autorizado")
-    return template
+    return TemplateSchema(**template)
 
 @router.put("/{template_id}", response_model=TemplateSchema)
 async def update_template(
     template_id: int,
     template_update: TemplateUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Atualiza um template existente"""
-    db_template = db.query(Template).filter(Template.id == template_id).first()
-    if not db_template:
+    """
+    Atualiza um template existente
+    """
+    template = await db.execute(
+        "SELECT * FROM templates WHERE id = %s AND user_id = %s",
+        (template_id, current_user.id)
+    )
+    template = template.fetchone()
+    
+    if not template:
         raise HTTPException(status_code=404, detail="Template não encontrado")
-    if db_template.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Acesso não autorizado")
     
-    update_data = template_update.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_template, field, value)
-    
-    try:
-        db.commit()
-        db.refresh(db_template)
-        return db_template
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+    # Verifica se o novo nome já existe (se o nome estiver sendo atualizado)
+    if template_update.name and template_update.name != template['name']:
+        existing_template = await db.execute(
+            "SELECT * FROM templates WHERE name = %s AND user_id = %s AND id != %s",
+            (template_update.name, current_user.id, template_id)
         )
+        existing_template = existing_template.fetchone()
+        
+        if existing_template:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Template com este nome já existe"
+            )
+    
+    for field, value in template_update.dict(exclude_unset=True).items():
+        setattr(template, field, value)
+    
+    await db.commit()
+    await db.refresh(template)
+    return TemplateSchema(**template)
 
 @router.delete("/{template_id}")
 async def delete_template(
     template_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Remove um template existente"""
-    db_template = db.query(Template).filter(Template.id == template_id).first()
-    if not db_template:
-        raise HTTPException(status_code=404, detail="Template não encontrado")
-    if db_template.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Acesso não autorizado")
+    """
+    Remove um template
+    """
+    template = await db.execute(
+        "SELECT * FROM templates WHERE id = %s AND user_id = %s",
+        (template_id, current_user.id)
+    )
+    template = template.fetchone()
     
-    try:
-        db.delete(db_template)
-        db.commit()
-        return {"message": "Template removido com sucesso"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        ) 
+    if not template:
+        raise HTTPException(status_code=404, detail="Template não encontrado")
+    
+    await db.execute("DELETE FROM templates WHERE id = %s", (template_id,))
+    await db.commit()
+    return {"message": "Template removido com sucesso"} 

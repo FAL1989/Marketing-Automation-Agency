@@ -1,17 +1,57 @@
-import logging
-from datetime import datetime
+from typing import Dict, Any
+import psutil
+import os
+from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
+from ..models.user import User
+from prometheus_client import CollectorRegistry
 
-logger = logging.getLogger(__name__)
+# Criar registro global do Prometheus
+REGISTRY = CollectorRegistry()
 
-async def log_rate_limit_event(client_ip: str) -> None:
+async def get_system_metrics() -> Dict[str, Any]:
     """
-    Registra um evento de rate limit.
+    Coleta métricas do sistema
+    """
+    cpu_percent = psutil.cpu_percent(interval=1)
+    memory = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
     
-    Args:
-        client_ip: O IP do cliente que excedeu o limite
+    return {
+        "cpu": {
+            "percent": cpu_percent,
+            "count": psutil.cpu_count()
+        },
+        "memory": {
+            "total": memory.total,
+            "available": memory.available,
+            "percent": memory.percent
+        },
+        "disk": {
+            "total": disk.total,
+            "used": disk.used,
+            "free": disk.free,
+            "percent": disk.percent
+        }
+    }
+
+async def get_application_metrics(db: Session) -> Dict[str, Any]:
     """
-    try:
-        timestamp = datetime.utcnow().isoformat()
-        logger.warning(f"Rate limit exceeded - IP: {client_ip} - Time: {timestamp}")
-    except Exception as e:
-        logger.error(f"Error logging rate limit event: {str(e)}") 
+    Coleta métricas da aplicação
+    """
+    # TODO: Implementar métricas específicas da aplicação
+    return {
+        "users": {
+            "total": db.query(User).count(),
+            "active": db.query(User).filter(User.is_active == True).count()
+        },
+        "requests": {
+            "total": 0,  # TODO: Implementar contagem de requisições
+            "success_rate": 100.0
+        },
+        "response_time": {
+            "avg": 0.0,  # TODO: Implementar média de tempo de resposta
+            "p95": 0.0,
+            "p99": 0.0
+        }
+    } 

@@ -1,0 +1,17 @@
+{
+  "timestamp": "2024-12-28T21:50:53.774Z",
+  "findings": [
+    {
+      "type": "monitoring",
+      "severity": "high",
+      "description": "Configuração do Prometheus não encontrada",
+      "recommendation": "Implementar monitoramento com Prometheus"
+    }
+  ],
+  "summary": {
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0
+  }
+}

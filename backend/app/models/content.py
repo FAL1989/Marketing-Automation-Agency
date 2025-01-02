@@ -1,19 +1,19 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from datetime import datetime
-from ..database.connection import Base
+from ..db.base_class import Base
 
 class Content(Base):
-    """Modelo de conteúdo gerado"""
+    """Modelo de conteúdo"""
     __tablename__ = "contents"
 
     id = Column(Integer, primary_key=True, index=True)
-    prompt = Column(String)
-    generated_text = Column(String)
-    model = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
     user_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relacionamentos
     user = relationship("User", back_populates="contents")
-    generations = relationship("Generation", back_populates="content", lazy="dynamic", cascade="all, delete-orphan", passive_deletes=True) 
+    generations = relationship("Generation", back_populates="content", cascade="all, delete-orphan") 

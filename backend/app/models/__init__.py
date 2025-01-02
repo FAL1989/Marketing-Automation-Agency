@@ -1,9 +1,18 @@
-from ..database.connection import Base
-from .user import User
-from .content import Content
-from .audit_log import AuditLog
-from .template import Template
-from .generation import Generation
+"""
+Package de modelos da aplicação.
+"""
 
-# Ensure all models are loaded
-__all__ = ['Base', 'User', 'Content', 'AuditLog', 'Template', 'Generation']
+# Importa os modelos para que o Alembic possa detectá-los
+from .user import User  # noqa
+from .audit import AuditLog  # noqa
+from .content import Content  # noqa
+from .template import Template  # noqa
+from .generation import Generation  # noqa
+
+__all__ = [
+    "User",
+    "AuditLog",
+    "Content",
+    "Template",
+    "Generation"
+]

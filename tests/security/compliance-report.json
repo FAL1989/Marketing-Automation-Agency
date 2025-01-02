@@ -1,0 +1,100 @@
+{
+  "timestamp": "2024-12-28T21:50:53.790Z",
+  "compliance_checks": [
+    {
+      "standard": "GDPR",
+      "check": "Política de Privacidade",
+      "status": "failed",
+      "message": "Política de Privacidade não encontrada"
+    },
+    {
+      "standard": "GDPR",
+      "check": "Consentimento do Usuário",
+      "status": "failed",
+      "message": "Não foi possível verificar componentes de consentimento"
+    },
+    {
+      "standard": "GDPR",
+      "check": "Direito ao Esquecimento",
+      "status": "failed",
+      "message": "Não foi possível verificar endpoints de deleção"
+    },
+    {
+      "standard": "LGPD",
+      "check": "Termos de Uso",
+      "status": "failed",
+      "message": "Termos de Uso não encontrados"
+    },
+    {
+      "standard": "LGPD",
+      "check": "Registro de Consentimento",
+      "status": "failed",
+      "message": "Sistema de registro de consentimento não encontrado"
+    },
+    {
+      "standard": "LGPD",
+      "check": "Relatório de Impacto",
+      "status": "failed",
+      "message": "Relatório de Impacto à Proteção de Dados não encontrado"
+    },
+    {
+      "standard": "Security",
+      "check": "HTTPS",
+      "status": "failed",
+      "message": "Configuração NGINX não encontrada"
+    },
+    {
+      "standard": "Security",
+      "check": "Password Hashing",
+      "status": "failed",
+      "message": "Arquivo de segurança não encontrado"
+    },
+    {
+      "standard": "Security",
+      "check": "Rate Limiting",
+      "status": "failed",
+      "message": "Não foi possível verificar middlewares"
+    },
+    {
+      "standard": "Data Protection",
+      "check": "Encryption at Rest",
+      "status": "failed",
+      "message": "Configuração de banco de dados não encontrada"
+    },
+    {
+      "standard": "Data Protection",
+      "check": "Data Backup",
+      "status": "failed",
+      "message": "docker-compose.yml não encontrado"
+    },
+    {
+      "standard": "Data Protection",
+      "check": "Data Retention",
+      "status": "failed",
+      "message": "Não foi possível verificar modelos de dados"
+    },
+    {
+      "standard": "Access Control",
+      "check": "Role-Based Access",
+      "status": "failed",
+      "message": "Não foi possível verificar sistema de autenticação"
+    },
+    {
+      "standard": "Access Control",
+      "check": "Session Management",
+      "status": "failed",
+      "message": "Não foi possível verificar middlewares"
+    },
+    {
+      "standard": "Access Control",
+      "check": "API Authentication",
+      "status": "failed",
+      "message": "Não foi possível verificar autenticação da API"
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 15,
+    "warnings": 0
+  }
+}

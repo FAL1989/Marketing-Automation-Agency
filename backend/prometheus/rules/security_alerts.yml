@@ -1,38 +1,132 @@
 groups:
   - name: security_alerts
     rules:
-      - alert: HighFailedLoginRate
-        expr: rate(failed_login_attempts_total[5m]) > 10
+      - alert: HighRateLimitViolations
+        expr: |
+          sum(increase(http_requests_total{status="429"}[5m])) > 100
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Alta taxa de falhas de login"
-          description: "{{ $value }} tentativas falhas de login por minuto nos últimos 5 minutos"
+          summary: "Alto número de violações de rate limit"
+          description: "{{ $value }} violações de rate limit nos últimos 5 minutos"
 
-      - alert: AccountLockoutSpike
-        expr: rate(account_lockouts_total[15m]) > 5
+      - alert: CriticalRateLimitViolations
+        expr: |
+          sum(increase(http_requests_total{status="429"}[5m])) > 1000
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Pico de bloqueios de conta"
-          description: "{{ $value }} contas bloqueadas por minuto nos últimos 15 minutos"
+          summary: "Número crítico de violações de rate limit"
+          description: "{{ $value }} violações de rate limit nos últimos 5 minutos"
 
-      - alert: HighRateLimitHits
-        expr: rate(rate_limit_hits_total[5m]) > 100
+      - alert: SecurityViolationsSuspiciousIP
+        expr: |
+          sum(increase(security_events_total{event_type=~"ACCESS_DENIED|SUSPICIOUS_ACTIVITY"}[15m])) by (client_ip) > 50
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Atividade suspeita detectada de IP"
+          description: "IP {{ $labels.client_ip }} gerou {{ $value }} eventos de segurança nos últimos 15 minutos"
+
+      - alert: XSSAttemptsDetected
+        expr: |
+          sum(increase(security_events_total{event_type="SUSPICIOUS_ACTIVITY",reason="xss_detected"}[5m])) > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Tentativas de XSS detectadas"
+          description: "{{ $value }} tentativas de XSS detectadas nos últimos 5 minutos"
+
+      - alert: CSRFAttemptsDetected
+        expr: |
+          sum(increase(security_events_total{event_type="ACCESS_DENIED",reason="csrf_validation_failed"}[5m])) > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Tentativas de CSRF detectadas"
+          description: "{{ $value }} tentativas de CSRF detectadas nos últimos 5 minutos"
+
+      - alert: HighErrorRate
+        expr: |
+          sum(increase(http_requests_total{status=~"5.."}[5m])) / sum(increase(http_requests_total[5m])) > 0.05
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Alto número de hits no rate limit"
-          description: "{{ $value }} hits no rate limit por minuto nos últimos 5 minutos"
+          summary: "Alta taxa de erros detectada"
+          description: "Taxa de erros > 5% nos últimos 5 minutos"
 
-      - alert: UnusualSessionSpike
-        expr: active_sessions > 1000
+      - alert: UnauthorizedAccessAttempts
+        expr: |
+          sum(increase(http_requests_total{status="401"}[5m])) > 100
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Pico incomum de sessões ativas"
-          description: "{{ $value }} sessões ativas simultaneamente" 
+          summary: "Alto número de tentativas de acesso não autorizado"
+          description: "{{ $value }} tentativas de acesso não autorizado nos últimos 5 minutos"
+
+      - alert: BruteForceAttempt
+        expr: |
+          sum(increase(auth_failures_total[5m])) by (client_ip) > 20
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Possível tentativa de força bruta detectada"
+          description: "IP {{ $labels.client_ip }} falhou em {{ $value }} tentativas de autenticação"
+
+      - alert: MFAFailureSpike
+        expr: |
+          sum(increase(mfa_attempts_total{status="failure"}[5m])) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alto número de falhas MFA detectado"
+          description: "{{ $value }} falhas de verificação MFA nos últimos 5 minutos"
+
+      - alert: MFALockoutSpike
+        expr: |
+          sum(increase(mfa_attempts_total{status="locked"}[15m])) > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alto número de bloqueios MFA detectado"
+          description: "{{ $value }} usuários bloqueados por falhas MFA nos últimos 15 minutos"
+
+      - alert: MFAVerificationLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(mfa_verification_seconds_bucket[5m])) by (le)) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alta latência na verificação MFA"
+          description: "95% das verificações MFA estão levando mais de 1 segundo"
+
+      - alert: MFADisableSpike
+        expr: |
+          sum(increase(mfa_disabled_total[1h])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alto número de desativações MFA"
+          description: "{{ $value }} usuários desabilitaram MFA na última hora"
+
+      - alert: MFABackupCodeUsage
+        expr: |
+          sum(increase(mfa_backup_code_used_total[1d])) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alto uso de códigos de backup MFA"
+          description: "{{ $value }} códigos de backup MFA usados nas últimas 24 horas" 

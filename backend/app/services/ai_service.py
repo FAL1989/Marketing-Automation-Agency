@@ -38,8 +38,9 @@ class AIService:
             "cohere": CohereProvider(config_service)
         }
         
-        # Inicia os workers para cada provedor
-        self._start_workers()
+    async def initialize(self):
+        """Inicializa os workers de forma assíncrona"""
+        await self._start_workers()
     
     async def _start_workers(self):
         """Inicia os workers para processar as filas de cada provedor"""

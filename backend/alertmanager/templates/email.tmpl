@@ -1,0 +1,92 @@
+{{ define "email.default.subject" }}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .GroupLabels.alertname }} - AI Agency Security Alert
+{{ end }}
+
+{{ define "email.default.html" }}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .header {
+            background-color: {{ if eq .Status "firing" }}#ff4444{{ else }}#44aa44{{ end }};
+            color: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .alert {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        .alert-critical {
+            border-left: 5px solid #ff4444;
+        }
+        .alert-warning {
+            border-left: 5px solid #ffbb33;
+        }
+        .label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>{{ .Status | toUpper }}: {{ .GroupLabels.alertname }}</h2>
+        <p>{{ .CommonAnnotations.summary }}</p>
+    </div>
+
+    {{ if gt (len .Alerts.Firing) 0 }}
+    <h3>🔥 Active Alerts ({{ .Alerts.Firing | len }})</h3>
+    {{ range .Alerts.Firing }}
+    <div class="alert alert-{{ .Labels.severity }}">
+        <p><span class="label">Alert:</span>{{ .Annotations.summary }}</p>
+        <p><span class="label">Description:</span>{{ .Annotations.description }}</p>
+        <p><span class="label">Severity:</span>{{ .Labels.severity }}</p>
+        <p><span class="label">Started:</span>{{ .StartsAt }}</p>
+        {{ range .Labels.SortedPairs }}
+        {{ if and (ne .Name "alertname") (ne .Name "severity") }}
+        <p><span class="label">{{ .Name }}:</span>{{ .Value }}</p>
+        {{ end }}
+        {{ end }}
+    </div>
+    {{ end }}
+    {{ end }}
+
+    {{ if gt (len .Alerts.Resolved) 0 }}
+    <h3>✅ Resolved Alerts ({{ .Alerts.Resolved | len }})</h3>
+    {{ range .Alerts.Resolved }}
+    <div class="alert">
+        <p><span class="label">Alert:</span>{{ .Annotations.summary }}</p>
+        <p><span class="label">Description:</span>{{ .Annotations.description }}</p>
+        <p><span class="label">Severity:</span>{{ .Labels.severity }}</p>
+        <p><span class="label">Started:</span>{{ .StartsAt }}</p>
+        <p><span class="label">Ended:</span>{{ .EndsAt }}</p>
+    </div>
+    {{ end }}
+    {{ end }}
+
+    <div class="footer">
+        <p>This is an automated security alert from AI Agency Security Monitoring.</p>
+        <p>Please do not reply to this email. For urgent issues, contact the security team directly.</p>
+        <p>View detailed metrics and logs in the <a href="{{ settings.FRONTEND_URL }}/security-dashboard">Security Dashboard</a></p>
+    </div>
+</body>
+</html>
+{{ end }} 

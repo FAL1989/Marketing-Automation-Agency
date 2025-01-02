@@ -1,5 +1,5 @@
 import pytest
-from backend.app.core.validation import data_validator, ValidationError
+from app.core.validation import data_validator, ValidationError
 
 def test_validate_email():
     """Testa validação de email"""

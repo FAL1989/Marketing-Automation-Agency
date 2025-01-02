@@ -1,170 +1,278 @@
 from enum import Enum
 import time
-from collections import deque
-from typing import Callable, Any, Optional, Deque, Tuple
 import asyncio
+from typing import Optional, Dict, Any, Callable, Awaitable
+import logging
+from prometheus_client import Counter, Gauge, Histogram, CollectorRegistry
 import structlog
 from datetime import datetime, timedelta
+from .notifications import notification_service
+from .events import EventType
+from functools import wraps
 
 logger = structlog.get_logger()
 
+# Registro dedicado para métricas do circuit breaker
+CIRCUIT_BREAKER_REGISTRY = CollectorRegistry()
+
+def get_or_create_metric(metric_class, name, documentation, registry, **kwargs):
+    """Retorna uma métrica existente ou cria uma nova"""
+    try:
+        return metric_class(name, documentation, registry=registry, **kwargs)
+    except ValueError:
+        # Se a métrica já existe, retorna a existente
+        for metric in registry.collect():
+            if metric.name == name:
+                return next(
+                    m for m in registry._names_to_collectors.values()
+                    if isinstance(m, metric_class) and m._name == name
+                )
+
+# Métricas do circuit breaker
+CIRCUIT_STATE = get_or_create_metric(
+    Gauge,
+    'circuit_breaker_state',
+    'Estado atual do circuit breaker (0=Closed, 1=Open, 2=Half-Open)',
+    CIRCUIT_BREAKER_REGISTRY,
+    labelnames=['service']
+)
+
+CIRCUIT_FAILURES = get_or_create_metric(
+    Counter,
+    'circuit_breaker_failures_total',
+    'Total de falhas registradas pelo circuit breaker',
+    CIRCUIT_BREAKER_REGISTRY,
+    labelnames=['service', 'error_type']
+)
+
+CIRCUIT_SUCCESSES = get_or_create_metric(
+    Counter,
+    'circuit_breaker_successes_total',
+    'Total de sucessos registrados pelo circuit breaker',
+    CIRCUIT_BREAKER_REGISTRY,
+    labelnames=['service']
+)
+
+CIRCUIT_TRANSITIONS = get_or_create_metric(
+    Counter,
+    'circuit_breaker_transitions_total',
+    'Total de transições de estado do circuit breaker',
+    CIRCUIT_BREAKER_REGISTRY,
+    labelnames=['service', 'from_state', 'to_state']
+)
+
+REQUEST_DURATION = get_or_create_metric(
+    Histogram,
+    'circuit_breaker_request_duration_seconds',
+    'Duração das requisições processadas pelo circuit breaker',
+    CIRCUIT_BREAKER_REGISTRY,
+    labelnames=['service', 'state'],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0)
+)
+
 class CircuitState(Enum):
-    CLOSED = "CLOSED"
-    OPEN = "OPEN"
-    HALF_OPEN = "HALF_OPEN"
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half-open"
 
 class CircuitBreaker:
+    """
+    Implementa o padrão Circuit Breaker com métricas detalhadas
+    e notificações de mudança de estado
+    """
+    
     def __init__(
         self,
-        failure_threshold: int = 5,
-        recovery_timeout: float = 60.0,
-        half_open_max_trials: int = 3,
-        window_size: int = 100,
-        window_duration: float = 60.0
+        service_name: str,
+        failure_threshold: int = 20,
+        reset_timeout: int = 15,
+        half_open_timeout: int = 5,
+        error_types: Optional[list[type]] = None
     ):
-        self.config = {
-            'failure_threshold': failure_threshold,
-            'recovery_timeout': recovery_timeout,
-            'half_open_max_trials': half_open_max_trials,
-            'window_size': window_size,
-            'window_duration': window_duration
-        }
-        self.state = CircuitState.CLOSED
-        self.metrics = {
-            'failures': 0,
-            'last_failure_time': 0,
-            'half_open_trials': 0,
-            'last_state_change': time.time(),
-            'total_requests': 0,
-            'successful_requests': 0,
-            'failed_requests': 0,
-            'total_latency': 0
-        }
-        self.windows = {
-            'request': deque(maxlen=window_size),
-            'latency': deque(maxlen=window_size),
-            'error': deque(maxlen=window_size)
-        }
-        self.state_changes = []
-
-    def _clean_windows(self):
-        current_time = time.time()
-        cutoff = current_time - self.config['window_duration']
-        for window in self.windows.values():
-            while window and window[0]["timestamp"] < cutoff:
-                window.popleft()
-
-    def _calculate_metrics(self) -> Tuple[float, float]:
-        self._clean_windows()
-        error_rate = (len([e for e in self.windows['error'] if e["is_error"]]) / 
-                     len(self.windows['error']) * 100 if self.windows['error'] else 0)
-        avg_latency = (sum(l["latency"] for l in self.windows['latency']) / 
-                      len(self.windows['latency']) if self.windows['latency'] else 0)
-        return error_rate, avg_latency
-
-    async def call(self, func: Callable, *args, **kwargs) -> Any:
-        if self.state == CircuitState.OPEN:
-            if time.time() - self.metrics['last_failure_time'] >= self.config['recovery_timeout']:
-                self._transition_to(CircuitState.HALF_OPEN)
-            else:
-                raise Exception(f"Circuit breaker is OPEN. Retry after {self.config['recovery_timeout'] - (time.time() - self.metrics['last_failure_time']):.1f}s")
-
+        self.service_name = service_name
+        self.failure_threshold = failure_threshold
+        self.reset_timeout = reset_timeout
+        self.half_open_timeout = half_open_timeout
+        self.error_types = error_types or [Exception]
+        
+        self._state = CircuitState.CLOSED
+        self._failure_count = 0
+        self._last_failure_time: Optional[float] = None
+        self._half_open_start: Optional[float] = None
+        self._lock = asyncio.Lock()
+        
+        # Inicializa métricas
+        CIRCUIT_STATE.labels(service=service_name).set(0)
+    
+    @property
+    def state(self) -> CircuitState:
+        return self._state
+    
+    @property
+    def failure_count(self) -> int:
+        return self._failure_count
+    
+    async def _transition_state(self, new_state: CircuitState) -> None:
+        """
+        Realiza a transição de estado com notificações
+        """
+        if new_state != self._state:
+            old_state = self._state
+            self._state = new_state
+            
+            # Atualiza métricas
+            CIRCUIT_STATE.labels(service=self.service_name).set(
+                {
+                    CircuitState.CLOSED: 0,
+                    CircuitState.OPEN: 1,
+                    CircuitState.HALF_OPEN: 2
+                }[new_state]
+            )
+            
+            CIRCUIT_TRANSITIONS.labels(
+                service=self.service_name,
+                from_state=old_state.value,
+                to_state=new_state.value
+            ).inc()
+            
+            # Notifica mudança de estado
+            await notification_service.send_event(
+                EventType.CIRCUIT_BREAKER_STATE_CHANGE,
+                {
+                    "service": self.service_name,
+                    "old_state": old_state.value,
+                    "new_state": new_state.value,
+                    "failure_count": self._failure_count,
+                    "last_failure": self._last_failure_time
+                }
+            )
+            
+            logger.info(
+                "Circuit breaker state changed",
+                service=self.service_name,
+                old_state=old_state.value,
+                new_state=new_state.value,
+                failure_count=self._failure_count
+            )
+    
+    async def _check_state_transition(self) -> None:
+        """
+        Verifica e realiza transições de estado baseado nas condições atuais
+        """
+        now = time.time()
+        
+        if self._state == CircuitState.OPEN:
+            # Verifica se deve transicionar para half-open
+            if now - self._last_failure_time >= self.reset_timeout:
+                await self._transition_state(CircuitState.HALF_OPEN)
+                self._half_open_start = now
+        
+        elif self._state == CircuitState.HALF_OPEN:
+            # Verifica se excedeu o timeout do half-open
+            if now - self._half_open_start >= self.half_open_timeout:
+                # Se não houve falhas durante o período half-open, fecha o circuito
+                if self._failure_count == 0:
+                    await self._transition_state(CircuitState.CLOSED)
+                else:
+                    # Se houve falhas, volta para aberto
+                    await self._transition_state(CircuitState.OPEN)
+                    self._last_failure_time = now
+    
+    async def record_failure(self, error: Exception) -> None:
+        """
+        Registra uma falha e atualiza o estado do circuit breaker
+        """
+        async with self._lock:
+            self._failure_count += 1
+            self._last_failure_time = time.time()
+            
+            # Registra métricas
+            error_type = type(error).__name__
+            CIRCUIT_FAILURES.labels(
+                service=self.service_name,
+                error_type=error_type
+            ).inc()
+            
+            # Verifica transição para estado aberto
+            if self._state == CircuitState.CLOSED:
+                if self._failure_count >= self.failure_threshold:
+                    await self._transition_state(CircuitState.OPEN)
+            
+            elif self._state == CircuitState.HALF_OPEN:
+                # Qualquer falha em half-open volta para aberto
+                await self._transition_state(CircuitState.OPEN)
+    
+    async def record_success(self) -> None:
+        """
+        Registra um sucesso e atualiza o estado do circuit breaker
+        """
+        async with self._lock:
+            # Registra métricas
+            CIRCUIT_SUCCESSES.labels(service=self.service_name).inc()
+            
+            if self._state == CircuitState.HALF_OPEN:
+                # Sucesso em half-open fecha o circuito
+                self._failure_count = 0
+                await self._transition_state(CircuitState.CLOSED)
+            
+            elif self._state == CircuitState.CLOSED:
+                # Reseta contador de falhas em caso de sucesso
+                self._failure_count = 0
+    
+    async def call(
+        self,
+        func: Callable[..., Awaitable[Any]],
+        *args,
+        **kwargs
+    ) -> Any:
+        """
+        Executa uma função protegida pelo circuit breaker
+        """
+        async with self._lock:
+            await self._check_state_transition()
+            
+            if self._state == CircuitState.OPEN:
+                raise Exception(f"Circuit breaker for {self.service_name} is OPEN")
+        
         start_time = time.time()
         try:
-            result = await func(*args, **kwargs) if asyncio.iscoroutinefunction(func) else func(*args, **kwargs)
-            self._record_success(time.time() - start_time)
-            return result
-        except Exception as e:
-            self._record_failure(time.time() - start_time)
-            raise
-
-    def _record_success(self, latency: float):
-        self.metrics['successful_requests'] += 1
-        self._update_metrics(latency, False)
-        if self.state == CircuitState.HALF_OPEN:
-            self.metrics['half_open_trials'] += 1
-            if self.metrics['half_open_trials'] >= self.config['half_open_max_trials']:
-                self._transition_to(CircuitState.CLOSED)
-
-    def _record_failure(self, latency: float):
-        self.metrics['failures'] += 1
-        self.metrics['failed_requests'] += 1
-        self.metrics['last_failure_time'] = time.time()
-        self._update_metrics(latency, True)
-        
-        error_rate, avg_latency = self._calculate_metrics()
-        if error_rate >= 50.0 or avg_latency >= 5.0 or self.metrics['failures'] >= self.config['failure_threshold']:
-            if self.state in [CircuitState.CLOSED, CircuitState.HALF_OPEN]:
-                self._transition_to(CircuitState.OPEN)
-
-    def _update_metrics(self, latency: float, is_error: bool):
-        current_time = time.time()
-        entry = {"timestamp": current_time, "is_error": is_error}
-        self.windows['request'].append(entry)
-        self.windows['latency'].append({"timestamp": current_time, "latency": latency})
-        self.windows['error'].append(entry)
-        self.metrics['total_requests'] += 1
-        self.metrics['total_latency'] += latency
-
-    def _transition_to(self, new_state: CircuitState):
-        old_state = self.state
-        self.state = new_state
-        self.metrics['last_state_change'] = time.time()
-        
-        if new_state == CircuitState.CLOSED:
-            self.metrics['failures'] = self.metrics['half_open_trials'] = 0
-        elif new_state == CircuitState.HALF_OPEN:
-            self.metrics['half_open_trials'] = 0
+            result = await func(*args, **kwargs)
             
-        self.state_changes.append({
-            'from': old_state.value,
-            'to': new_state.value,
-            'timestamp': self.metrics['last_state_change'],
-            'metrics': self.get_metrics()
-        })
-        
-        logger.info(
-            "circuit_breaker_state_change",
-            old_state=old_state.value,
-            new_state=new_state.value,
-            metrics=self._calculate_metrics()
-        )
-
-    def get_metrics(self) -> dict:
-        """Retorna métricas detalhadas do circuit breaker"""
-        current_time = time.time()
-        
+            # Registra sucesso e duração
+            duration = time.time() - start_time
+            REQUEST_DURATION.labels(
+                service=self.service_name,
+                state=self._state.value
+            ).observe(duration)
+            
+            await self.record_success()
+            return result
+            
+        except Exception as e:
+            # Verifica se é um tipo de erro monitorado
+            if any(isinstance(e, error_type) for error_type in self.error_types):
+                # Registra falha e duração
+                duration = time.time() - start_time
+                REQUEST_DURATION.labels(
+                    service=self.service_name,
+                    state=self._state.value
+                ).observe(duration)
+                
+                await self.record_failure(e)
+            
+            raise e
+    
+    async def get_status(self) -> Dict[str, Any]:
+        """
+        Retorna o status atual do circuit breaker
+        """
         return {
-            "state": self.state.value,
-            "total_requests": self.metrics['total_requests'],
-            "successful_requests": self.metrics['successful_requests'],
-            "failed_requests": self.metrics['failed_requests'],
-            "current_failures": self.metrics['failures'],
-            "success_rate": (self.metrics['successful_requests'] / self.metrics['total_requests'] * 100) 
-                if self.metrics['total_requests'] > 0 else 0,
-            "error_rate": self._calculate_metrics()[0],
-            "avg_latency": self._calculate_metrics()[1],
-            "last_state_change": self.metrics['last_state_change'],
-            "time_since_last_change": current_time - self.metrics['last_state_change'],
-            "window_metrics": {
-                "size": len(self.windows['request']),
-                "duration": self.config['window_duration'],
-                "requests_in_window": len(self.windows['request']),
-                "errors_in_window": len([e for e in self.windows['error'] if e["is_error"]])
-            },
-            "state_changes": self.state_changes[-10:]  # Últimas 10 mudanças de estado
-        }
-        
-    def reset(self):
-        """Reseta o circuit breaker para o estado inicial"""
-        self._transition_to(CircuitState.CLOSED)
-        self.metrics['failures'] = 0
-        self.metrics['half_open_trials'] = 0
-        self.metrics['last_failure_time'] = 0
-        for window in self.windows.values():
-            window.clear()
-        self.metrics['total_requests'] = 0
-        self.metrics['successful_requests'] = 0
-        self.metrics['failed_requests'] = 0
-        self.metrics['total_latency'] = 0
-        self.state_changes = [] 
+            "service": self.service_name,
+            "state": self._state.value,
+            "failure_count": self._failure_count,
+            "failure_threshold": self.failure_threshold,
+            "last_failure": self._last_failure_time,
+            "half_open_start": self._half_open_start,
+            "reset_timeout": self.reset_timeout,
+            "half_open_timeout": self.half_open_timeout
+        } 

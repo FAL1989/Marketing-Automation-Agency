@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UserSettings as UserSettingsType } from '../../types';
+import { UserSettings as UserSettingsType, MFASetupResponse } from '../../types';
 import { getUserSettings, updateUserSettings } from '../../services/userService';
+import { enableMFA, verifyMFA, disableMFA, setRecoveryEmail } from '../../services/mfaService';
+import { CheckCircleIcon } from '@heroicons/react/24/outline';
+import QRCode from 'qrcode.react';
 
 export const UserSettings: React.FC = () => {
   const navigate = useNavigate();
@@ -24,6 +27,10 @@ export const UserSettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<'profile' | 'notifications' | 'preferences' | 'security'>('profile');
+  const [mfaSetup, setMfaSetup] = useState<MFASetupResponse | null>(null);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [showMFADialog, setShowMFADialog] = useState(false);
+  const [mfaError, setMfaError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -81,6 +88,72 @@ export const UserSettings: React.FC = () => {
         [field]: value
       }
     }));
+  };
+
+  const handleEnableMFA = async () => {
+    try {
+      setMfaError(null);
+      const response = await enableMFA();
+      setMfaSetup(response);
+      setShowMFADialog(true);
+    } catch (err) {
+      console.error('Erro ao habilitar MFA:', err);
+      setMfaError('Erro ao habilitar MFA. Por favor, tente novamente.');
+    }
+  };
+
+  const handleVerifyMFA = async () => {
+    try {
+      setMfaError(null);
+      await verifyMFA(verificationCode);
+      setSettings(prev => ({
+        ...prev,
+        security: {
+          ...prev.security,
+          mfaEnabled: true
+        }
+      }));
+      setShowMFADialog(false);
+      setMfaSetup(null);
+      setVerificationCode('');
+    } catch (err) {
+      console.error('Erro ao verificar código MFA:', err);
+      setMfaError('Código inválido. Por favor, tente novamente.');
+    }
+  };
+
+  const handleDisableMFA = async () => {
+    try {
+      setMfaError(null);
+      await disableMFA(verificationCode);
+      setSettings(prev => ({
+        ...prev,
+        security: {
+          ...prev.security,
+          mfaEnabled: false
+        }
+      }));
+      setVerificationCode('');
+    } catch (err) {
+      console.error('Erro ao desabilitar MFA:', err);
+      setMfaError('Erro ao desabilitar MFA. Por favor, tente novamente.');
+    }
+  };
+
+  const handleSetRecoveryEmail = async (email: string) => {
+    try {
+      await setRecoveryEmail(email);
+      setSettings(prev => ({
+        ...prev,
+        security: {
+          ...prev.security,
+          mfaRecoveryEmail: email
+        }
+      }));
+    } catch (err) {
+      console.error('Erro ao definir email de recuperação:', err);
+      setError('Erro ao definir email de recuperação. Por favor, tente novamente.');
+    }
   };
 
   if (loading) {
@@ -251,43 +324,92 @@ export const UserSettings: React.FC = () => {
 
             {section === 'security' && (
               <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <span className="flex-grow flex flex-col">
-                    <span className="text-sm font-medium text-gray-900">
-                      Autenticação de Dois Fatores (2FA)
-                    </span>
-                    <span className="text-sm text-gray-500">
-                      Adicione uma camada extra de segurança à sua conta
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleSecurityChange('mfaEnabled', !settings.security.mfaEnabled)}
-                    className={`${
-                      settings.security.mfaEnabled ? 'bg-indigo-600' : 'bg-gray-200'
-                    } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
-                  >
-                    <span
-                      className={`${
-                        settings.security.mfaEnabled ? 'translate-x-5' : 'translate-x-0'
-                      } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
-                    />
-                  </button>
+                {/* MFA Section */}
+                <div className="bg-white shadow sm:rounded-lg">
+                  <div className="px-4 py-5 sm:p-6">
+                    <h3 className="text-lg leading-6 font-medium text-gray-900">
+                      Autenticação de Dois Fatores (MFA)
+                    </h3>
+                    <div className="mt-2 max-w-xl text-sm text-gray-500">
+                      <p>
+                        Adicione uma camada extra de segurança à sua conta usando autenticação de dois fatores.
+                      </p>
+                    </div>
+                    <div className="mt-5">
+                      {settings.security.mfaEnabled ? (
+                        <div className="space-y-4">
+                          <div className="flex items-center text-sm text-green-600">
+                            <CheckCircleIcon className="h-5 w-5 mr-2" />
+                            MFA está ativado
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleDisableMFA}
+                            className="inline-flex items-center px-4 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                          >
+                            Desativar MFA
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleEnableMFA}
+                          className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        >
+                          Ativar MFA
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <label htmlFor="sessionTimeout" className="block text-sm font-medium text-gray-700">
-                    Tempo Limite da Sessão (minutos)
-                  </label>
-                  <input
-                    type="number"
-                    id="sessionTimeout"
-                    value={settings.security.sessionTimeout}
-                    onChange={(e) => handleSecurityChange('sessionTimeout', parseInt(e.target.value))}
-                    min="5"
-                    max="1440"
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
+                {/* Recovery Email Section */}
+                <div className="bg-white shadow sm:rounded-lg">
+                  <div className="px-4 py-5 sm:p-6">
+                    <h3 className="text-lg leading-6 font-medium text-gray-900">
+                      Email de Recuperação
+                    </h3>
+                    <div className="mt-2 max-w-xl text-sm text-gray-500">
+                      <p>
+                        Configure um email alternativo para recuperação de acesso em caso de perda do dispositivo MFA.
+                      </p>
+                    </div>
+                    <div className="mt-5">
+                      <input
+                        type="email"
+                        value={settings.security.mfaRecoveryEmail || ''}
+                        onChange={(e) => handleSecurityChange('mfaRecoveryEmail', e.target.value)}
+                        className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                        placeholder="email@exemplo.com"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Session Timeout Section */}
+                <div className="bg-white shadow sm:rounded-lg">
+                  <div className="px-4 py-5 sm:p-6">
+                    <h3 className="text-lg leading-6 font-medium text-gray-900">
+                      Tempo Limite da Sessão
+                    </h3>
+                    <div className="mt-2 max-w-xl text-sm text-gray-500">
+                      <p>
+                        Defina o tempo de inatividade após o qual sua sessão será encerrada automaticamente.
+                      </p>
+                    </div>
+                    <div className="mt-5">
+                      <select
+                        value={settings.security.sessionTimeout}
+                        onChange={(e) => handleSecurityChange('sessionTimeout', parseInt(e.target.value))}
+                        className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                      >
+                        <option value={15}>15 minutos</option>
+                        <option value={30}>30 minutos</option>
+                        <option value={60}>1 hora</option>
+                        <option value={120}>2 horas</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -315,6 +437,82 @@ export const UserSettings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* MFA Dialog */}
+      {showMFADialog && mfaSetup && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              Configure a Autenticação de Dois Fatores
+            </h3>
+            
+            <div className="space-y-4">
+              <div className="flex justify-center">
+                <QRCode value={mfaSetup.qr_uri} size={200} />
+              </div>
+              
+              <p className="text-sm text-gray-500">
+                1. Escaneie o código QR com seu aplicativo autenticador (Google Authenticator, Authy, etc.)
+              </p>
+              
+              <div className="bg-yellow-50 p-4 rounded-md">
+                <h4 className="text-sm font-medium text-yellow-800 mb-2">
+                  Códigos de Backup
+                </h4>
+                <p className="text-xs text-yellow-700 mb-2">
+                  Guarde estes códigos em um lugar seguro. Você precisará deles se perder acesso ao seu dispositivo.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {mfaSetup.backup_codes.map((code, index) => (
+                    <code key={index} className="text-xs bg-yellow-100 p-1 rounded">
+                      {code}
+                    </code>
+                  ))}
+                </div>
+              </div>
+              
+              <div>
+                <label htmlFor="verificationCode" className="block text-sm font-medium text-gray-700">
+                  Código de Verificação
+                </label>
+                <input
+                  type="text"
+                  id="verificationCode"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value)}
+                  placeholder="Digite o código"
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                />
+              </div>
+              
+              {mfaError && (
+                <p className="text-sm text-red-600">{mfaError}</p>
+              )}
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMFADialog(false);
+                    setMfaSetup(null);
+                    setVerificationCode('');
+                  }}
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleVerifyMFA}
+                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  Verificar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }; 

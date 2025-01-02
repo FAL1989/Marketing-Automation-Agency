@@ -1,7 +1,10 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 import logging
-from .base import AIProvider
-from ..config import settings
+from .base import AIProvider, AIRequest, AIResponse
+from app.core.config import settings
+from .providers.openai import OpenAIProvider
+from .providers.anthropic import AnthropicProvider
+from .providers.cohere import CohereProvider
 
 logger = logging.getLogger(__name__)
 

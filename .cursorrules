@@ -1,0 +1,176 @@
+# AI Agency Cursor Rules
+# This file defines rules for the Cursor AI coding assistant
+
+# General project context
+project_type: "ai-saas"
+primary_languages: ["typescript", "python", "javascript"]
+frameworks: ["nextjs", "fastapi", "react"]
+
+# File naming conventions
+naming_conventions:
+  components: "PascalCase"
+  utilities: "camelCase"
+  constants: "UPPER_SNAKE_CASE"
+  types: "PascalCase"
+  interfaces: "PascalCase"
+  database: "snake_case"
+
+# Code organization preferences
+organization:
+  imports:
+    order: ["react", "external", "components", "utils", "types", "styles"]
+    group_by_type: true
+  
+  component_structure:
+    order: [
+      "imports",
+      "types",
+      "constants",
+      "styles",
+      "component",
+      "exports"
+    ]
+
+# Architecture rules
+architecture:
+  frontend:
+    structure: [
+      "components/",
+      "hooks/",
+      "utils/",
+      "types/",
+      "services/",
+      "styles/"
+    ]
+    component_patterns:
+      - "components should be function components"
+      - "use hooks for state management"
+      - "props should be typed"
+
+  backend:
+    structure: [
+      "api/",
+      "core/",
+      "services/",
+      "models/",
+      "utils/",
+      "config/"
+    ]
+    patterns:
+      - "use dependency injection"
+      - "follow repository pattern"
+      - "implement service layer"
+
+# AI/ML specific rules
+ai_ml:
+  providers: ["openai", "anthropic", "cohere"]
+  patterns:
+    - "implement provider fallback"
+    - "use caching for responses"
+    - "implement rate limiting"
+    - "track token usage"
+
+# Security rules
+security:
+  required_patterns:
+    - "implement input validation"
+    - "sanitize user inputs"
+    - "use prepared statements"
+    - "implement rate limiting"
+    - "validate JWT tokens"
+  forbidden_patterns:
+    - "store secrets in code"
+    - "disable CORS globally"
+    - "log sensitive data"
+
+# Testing requirements
+testing:
+  coverage_threshold: 80
+  required_tests:
+    - "unit tests for utils"
+    - "integration tests for API"
+    - "e2e tests for critical flows"
+    - "security tests"
+  patterns:
+    - "use testing library for React"
+    - "use pytest for Python"
+    - "mock external services"
+
+# Performance rules
+performance:
+  patterns:
+    - "implement caching"
+    - "lazy load components"
+    - "optimize database queries"
+    - "use connection pooling"
+  thresholds:
+    max_bundle_size: "200kb"
+    max_api_response_time: "200ms"
+    max_db_query_time: "100ms"
+
+# Documentation requirements
+documentation:
+  required:
+    - "API documentation"
+    - "Component documentation"
+    - "Setup instructions"
+    - "Deployment guide"
+  patterns:
+    - "document exported functions"
+    - "document complex algorithms"
+    - "maintain README.md"
+
+# Style guide
+style:
+  typescript:
+    indent: 2
+    quotes: "single"
+    semi: true
+    trailing_comma: "es5"
+  
+  python:
+    indent: 4
+    quotes: "double"
+    max_line_length: 88
+    formatter: "black"
+
+# DevOps rules
+devops:
+  required:
+    - "CI/CD pipeline"
+    - "automated testing"
+    - "monitoring setup"
+    - "backup system"
+  patterns:
+    - "use Docker containers"
+    - "implement health checks"
+    - "set up alerting"
+    - "maintain IaC"
+
+# Accessibility requirements
+accessibility:
+  required:
+    - "semantic HTML"
+    - "ARIA labels"
+    - "keyboard navigation"
+    - "color contrast"
+  patterns:
+    - "test with screen readers"
+    - "implement focus management"
+
+# Error handling
+error_handling:
+  required_patterns:
+    - "implement global error boundary"
+    - "log errors properly"
+    - "provide user feedback"
+    - "implement retry logic"
+  
+# Monitoring
+monitoring:
+  required_metrics:
+    - "API response times"
+    - "Error rates"
+    - "AI token usage"
+    - "Cache hit rates"
+    - "System resources"

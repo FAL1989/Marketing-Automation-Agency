@@ -1,66 +1,60 @@
-from sqlalchemy import create_engine, event, text
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.pool import QueuePool
 from ..core.config import settings
 import structlog
 import time
 import random
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from tenacity import retry, stop_after_attempt, wait_exponential
-from typing import Generator
+from typing import AsyncGenerator
 
 logger = structlog.get_logger()
 
 def create_db_engine():
-    """Cria o engine do SQLAlchemy com configurações otimizadas"""
-    return create_engine(
-        settings.DATABASE_URL,
+    """Cria o engine assíncrono do SQLAlchemy com configurações otimizadas"""
+    return create_async_engine(
+        str(settings.SQLALCHEMY_DATABASE_URI),
         poolclass=QueuePool,
-        pool_size=30,  # Aumentado para suportar mais conexões
-        max_overflow=20,  # Aumentado para mais flexibilidade
+        pool_size=5,
+        max_overflow=10,
         pool_timeout=30,
         pool_recycle=1800,
-        pool_pre_ping=True,
-        connect_args={
-            "connect_timeout": 10,
-            "keepalives": 1,
-            "keepalives_idle": 30,
-            "keepalives_interval": 10,
-            "keepalives_count": 5,
-            "application_name": "app_backend"  # Identificação da aplicação
-        }
+        echo=settings.SQLALCHEMY_ECHO,
+        future=True
     )
 
 # Cria o engine do SQLAlchemy
 engine = create_db_engine()
 
 # Cria a fábrica de sessões com validação de conexão
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
+)
 
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=4, max=10),
     reraise=True
 )
-def get_db():
+async def get_db():
     """Fornece uma sessão do banco de dados com retry exponencial"""
-    db = SessionLocal()
-    try:
-        # Testa a conexão com retry usando text() explicitamente
-        db.execute(text("SELECT 1"))
-        return db
-    except (OperationalError, DBAPIError) as e:
-        logger.error(
-            "Erro de conexão com o banco",
-            error=str(e),
-            retry_count=1
-        )
-        db.close()
-        raise
-    finally:
-        db.close()
+    async with SessionLocal() as db:
+        try:
+            # Testa a conexão com retry usando text() explicitamente
+            await db.execute(text("SELECT 1"))
+            return db
+        except (OperationalError, DBAPIError) as e:
+            logger.error(
+                "Erro de conexão com o banco",
+                error=str(e),
+                retry_count=1
+            )
+            await db.close()
+            raise
+        finally:
+            await db.close()
 
 @event.listens_for(Engine, "connect")
 def connect(dbapi_connection, connection_record):

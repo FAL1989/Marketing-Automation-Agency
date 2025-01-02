@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiagency"
+version = "0.1.0"
+description = "AI Agency API"
+requires-python = ">=3.12"
+authors = [
+    {name = "AI Agency Team", email = "team@aiagency.com"},
+]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+python_paths = ["."]
+env_files = [".env.test"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto" 

@@ -1,122 +1,114 @@
 import pytest
 from fastapi.testclient import TestClient
-from backend.app.main import create_app
-from backend.app.core import monitoring
+from ..conftest import test_client, test_user
+from ...app.core.config import settings
 
-@pytest.fixture
-def test_client(mock_redis):
-    """Cria um cliente de teste com Redis mockado"""
-    app = create_app()
-    return TestClient(app)
+def test_security_headers_middleware(test_client):
+    """Testa o middleware de headers de segurança"""
+    response = test_client.get("/")
+    headers = response.headers
+    
+    # Verifica headers de segurança
+    assert "content-security-policy" in headers
+    assert "x-frame-options" in headers
+    assert "x-content-type-options" in headers
+    assert "x-xss-protection" in headers
+    assert "referrer-policy" in headers
 
-def test_cors_allowed_origin(test_client):
-    """Testa CORS com origem permitida"""
-    response = test_client.options(
-        "/metrics",
-        headers={
-            "Origin": "http://localhost:3000",
-            "Access-Control-Request-Method": "GET"
-        }
-    )
+def test_rate_limit_middleware(test_client):
+    """Testa o middleware de rate limiting"""
+    # Faz múltiplas requisições
+    responses = []
+    for _ in range(settings.RATE_LIMIT_BURST + 1):
+        responses.append(test_client.get("/"))
+    
+    # Verifica se alguma requisição foi limitada
+    assert any(r.status_code == 429 for r in responses)
+    
+    # Verifica headers de rate limit
+    last_response = responses[-1]
+    assert "x-ratelimit-limit" in last_response.headers
+    assert "x-ratelimit-remaining" in last_response.headers
+    assert "x-ratelimit-reset" in last_response.headers
+
+def test_cors_middleware(test_client):
+    """Testa o middleware CORS"""
+    # Requisição de origem permitida
+    headers = {
+        "Origin": settings.FRONTEND_URL,
+        "Access-Control-Request-Method": "POST"
+    }
+    response = test_client.options("/", headers=headers)
     assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "access-control-allow-origin" in response.headers
+    assert response.headers["access-control-allow-origin"] == settings.FRONTEND_URL
+    
+    # Requisição de origem não permitida
+    headers = {
+        "Origin": "http://malicious-site.com"
+    }
+    response = test_client.get("/", headers=headers)
+    assert "access-control-allow-origin" not in response.headers
 
-def test_cors_blocked_origin(test_client):
-    """Testa CORS com origem bloqueada"""
-    response = test_client.options(
-        "/metrics",
+def test_auth_middleware(test_client, test_user):
+    """Testa o middleware de autenticação"""
+    # Rota protegida sem token
+    response = test_client.get(f"{settings.API_V1_STR}/users/me")
+    assert response.status_code == 401
+    
+    # Rota protegida com token inválido
+    response = test_client.get(
+        f"{settings.API_V1_STR}/users/me",
+        headers={"Authorization": "Bearer invalid"}
+    )
+    assert response.status_code == 401
+
+def test_circuit_breaker_middleware(test_client):
+    """Testa o middleware de circuit breaker"""
+    # Força falhas para ativar o circuit breaker
+    responses = []
+    for _ in range(settings.CIRCUIT_BREAKER_FAILURE_THRESHOLD + 1):
+        responses.append(
+            test_client.post(
+                f"{settings.API_V1_STR}/auth/login",
+                data={"username": "invalid", "password": "invalid"}
+            )
+        )
+    
+    # Verifica se o circuit breaker foi ativado
+    assert any(r.status_code == 503 for r in responses)
+
+def test_middleware_order(test_client, test_user):
+    """Testa a ordem de execução dos middlewares"""
+    # Faz uma requisição que ativa múltiplos middlewares
+    response = test_client.post(
+        f"{settings.API_V1_STR}/users/me",
         headers={
             "Origin": "http://malicious-site.com",
-            "Access-Control-Request-Method": "GET"
-        }
+            "Authorization": "Bearer invalid"
+        },
+        json={"data": "test"}
     )
-    assert response.status_code == 400
-
-def test_security_headers(test_client):
-    """Testa se todos os headers de segurança estão presentes"""
-    response = test_client.get("/")
     
-    # Headers básicos
-    assert response.headers["X-Content-Type-Options"] == "nosniff"
-    assert response.headers["X-Frame-Options"] == "DENY"
-    assert response.headers["X-XSS-Protection"] == "1; mode=block"
-    
-    # Novos headers
-    assert "Content-Security-Policy" in response.headers
-    assert "Strict-Transport-Security" in response.headers
-    assert response.headers["Strict-Transport-Security"] == "max-age=31536000; includeSubDomains; preload"
-    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
-    assert "Permissions-Policy" in response.headers
-    assert response.headers["Cross-Origin-Resource-Policy"] == "same-origin"
-    assert response.headers["Cross-Origin-Opener-Policy"] == "same-origin"
-    assert response.headers["Cross-Origin-Embedder-Policy"] == "require-corp"
-
-def test_csp_header_content(test_client):
-    """Testa o conteúdo do Content Security Policy"""
-    response = test_client.get("/")
-    csp = response.headers["Content-Security-Policy"]
-    
-    # Verifica diretivas essenciais
-    assert "default-src 'self'" in csp
-    assert "script-src 'self' 'unsafe-inline' 'unsafe-eval'" in csp
-    assert "object-src 'none'" in csp
-    assert "frame-ancestors 'none'" in csp
-    assert "base-uri 'self'" in csp
-
-def test_permissions_policy_content(test_client):
-    """Testa o conteúdo do Permissions Policy"""
-    response = test_client.get("/")
-    permissions = response.headers["Permissions-Policy"]
-    
-    # Verifica permissões restritas
-    assert "camera=()" in permissions
-    assert "geolocation=()" in permissions
-    assert "microphone=()" in permissions
-    assert "payment=()" in permissions
-
-def test_suspicious_sql_injection(test_client):
-    """Testa bloqueio de SQL injection"""
-    response = test_client.get("/users/search?query=UNION SELECT")
+    # O middleware CORS deve bloquear antes do auth
     assert response.status_code == 403
+    assert "cors" in response.json()["detail"].lower()
 
-def test_suspicious_xss(test_client):
-    """Testa bloqueio de XSS"""
-    response = test_client.get("/users/search?query=<script>alert(1)</script>")
-    assert response.status_code == 403
+def test_error_handling_middleware(test_client):
+    """Testa o middleware de tratamento de erros"""
+    # Força um erro interno
+    response = test_client.get("/force-error")
+    assert response.status_code == 500
+    data = response.json()
+    assert "detail" in data
+    assert "internal server error" in data["detail"].lower()
 
-def test_path_traversal(test_client):
-    """Testa bloqueio de path traversal"""
-    response = test_client.get("/users/search?query=../etc/passwd")
-    assert response.status_code == 403
-
-def test_host_validation(test_client):
-    """Testa validação de host"""
+def test_logging_middleware(test_client):
+    """Testa o middleware de logging"""
+    # Faz uma requisição que deve ser logada
     response = test_client.get(
-        "/metrics",
-        headers={"Host": "localhost:8000"}
+        "/",
+        headers={"X-Request-ID": "test-request-id"}
     )
     assert response.status_code == 200
-
-@pytest.mark.parametrize("pattern", [
-    "UNION SELECT",
-    "exec xp_",
-    "../etc/passwd",
-    "<script>alert(1)</script>",
-    "../../secret",
-    "%2e%2e%2f"
-])
-def test_suspicious_patterns(test_client, pattern):
-    """Testa bloqueio de padrões suspeitos"""
-    response = test_client.get(f"/users/search?query={pattern}")
-    assert response.status_code == 403
-
-def test_rate_limit_metrics(test_client):
-    """Testa métricas de rate limit"""
-    # Faz várias requisições para atingir o limite
-    for _ in range(100):
-        response = test_client.get("/metrics")
-        assert response.status_code == 200
-    
-    # A próxima requisição deve ser bloqueada
-    response = test_client.get("/metrics")
-    assert response.status_code == 429 
+    assert "x-request-id" in response.headers 

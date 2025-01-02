@@ -1,101 +1,44 @@
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock
-from fastapi import Request
-from backend.app.core.audit import AuditLogger, audit_logger
-from sqlalchemy.orm import Session
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
 
-@pytest.fixture
-def mock_request():
-    request = MagicMock(spec=Request)
-    request.client.host = "127.0.0.1"
-    request.method = "GET"
-    request.url.path = "/api/resource"
-    request.headers = {
-        "user-agent": "test-agent",
-        "referer": "http://test.com"
-    }
-    return request
-
-@pytest.fixture
-def mock_db():
-    db = MagicMock(spec=Session)
-    db.add = MagicMock()
-    db.commit = MagicMock()
-    db.query = MagicMock()
-    return db
+from app.core.audit import audit_logger
+from app.models.user import User
+from app.core.security import get_password_hash
+from app.db.session import engine
 
 @pytest.mark.asyncio
-async def test_log_event_basic(mock_db):
-    """Testa o registro básico de eventos"""
-    await audit_logger.log_event(
-        event_type="auth.login.success",
-        user_id=1,
-        details={"ip": "127.0.0.1"},
-        db=mock_db
-    )
-    mock_db.add.assert_called_once()
-    mock_db.commit.assert_called_once()
-
-@pytest.mark.asyncio
-async def test_log_event_with_request(mock_db, mock_request):
-    """Testa o registro de eventos com detalhes da requisição"""
-    await audit_logger.log_event(
-        event_type="auth.access",
-        user_id=1,
-        request=mock_request,
-        db=mock_db
-    )
-    mock_db.add.assert_called_once()
-    mock_db.commit.assert_called_once()
-
-@pytest.mark.asyncio
-async def test_get_events_with_filters(mock_db):
-    """Testa a consulta de eventos com diferentes filtros"""
-    await audit_logger.get_events(
-        db=mock_db,
-        start_date=datetime.utcnow(),
-        end_date=datetime.utcnow(),
-        event_type="auth.login",
-        user_id=1
-    )
-    mock_db.query.assert_called_once()
-
-@pytest.mark.asyncio
-async def test_cleanup_old_events(mock_db):
-    """Testa a limpeza de eventos antigos"""
-    await audit_logger.cleanup_old_events(db=mock_db, days=90)
-    mock_db.query.assert_called_once()
-    mock_db.commit.assert_called_once()
-
-@pytest.mark.asyncio
-async def test_export_events(mock_db):
-    """Testa a exportação de eventos"""
-    mock_db.query.return_value.all.return_value = []
+async def test_audit_log_request(test_client: AsyncClient):
+    """
+    Testa o registro de log de auditoria para uma requisição
+    """
+    response = await test_client.get("/api/v1/users/me")
+    assert response.status_code in [401, 403]  # Deve falhar sem autenticação
     
-    # Testa exportação JSON
-    json_data = await audit_logger.export_events(
-        db=mock_db,
-        start_date=datetime.utcnow(),
-        end_date=datetime.utcnow(),
-        format="json"
-    )
-    assert isinstance(json_data, str)
+    # Verificar se o log foi registrado
+    with open(audit_logger.file_handler.baseFilename, "r") as f:
+        logs = f.readlines()
+        assert len(logs) > 0
+        last_log = logs[-1]
+        assert "GET" in last_log
+        assert "/api/v1/users/me" in last_log
+
+@pytest.mark.asyncio
+async def test_audit_log_security_event(test_user: User):
+    """
+    Testa o registro de eventos de segurança
+    """
+    event_type = "login_attempt"
+    user_id = str(test_user.id)
+    details = {"ip": "127.0.0.1", "success": True}
     
-    # Testa exportação CSV
-    csv_data = await audit_logger.export_events(
-        db=mock_db,
-        start_date=datetime.utcnow(),
-        end_date=datetime.utcnow(),
-        format="csv"
-    )
-    assert isinstance(csv_data, str)
+    audit_logger.log_security_event(event_type, user_id, details)
     
-    # Testa formato inválido
-    with pytest.raises(ValueError):
-        await audit_logger.export_events(
-            db=mock_db,
-            start_date=datetime.utcnow(),
-            end_date=datetime.utcnow(),
-            format="invalid"
-        ) 
+    # Verificar se o log foi registrado
+    with open(audit_logger.file_handler.baseFilename, "r") as f:
+        logs = f.readlines()
+        assert len(logs) > 0
+        last_log = logs[-1]
+        assert event_type in last_log
+        assert user_id in last_log 

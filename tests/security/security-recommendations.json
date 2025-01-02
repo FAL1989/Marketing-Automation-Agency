@@ -1,0 +1,52 @@
+{
+  "critical": [
+    "AÇÃO IMEDIATA NECESSÁRIA: Vulnerabilidades críticas ou de alta severidade encontradas",
+    "Priorize a correção das seguintes issues:",
+    "- Configuração do Prometheus não encontrada (monitoring)",
+    "  Recomendação: Implementar monitoramento com Prometheus"
+  ],
+  "high": [
+    "COMPLIANCE: Falhas de conformidade encontradas",
+    "Corrija as seguintes não-conformidades:",
+    "- Política de Privacidade (GDPR)",
+    "  Problema: Política de Privacidade não encontrada",
+    "- Consentimento do Usuário (GDPR)",
+    "  Problema: Não foi possível verificar componentes de consentimento",
+    "- Direito ao Esquecimento (GDPR)",
+    "  Problema: Não foi possível verificar endpoints de deleção",
+    "- Termos de Uso (LGPD)",
+    "  Problema: Termos de Uso não encontrados",
+    "- Registro de Consentimento (LGPD)",
+    "  Problema: Sistema de registro de consentimento não encontrado",
+    "- Relatório de Impacto (LGPD)",
+    "  Problema: Relatório de Impacto à Proteção de Dados não encontrado",
+    "- HTTPS (Security)",
+    "  Problema: Configuração NGINX não encontrada",
+    "- Password Hashing (Security)",
+    "  Problema: Arquivo de segurança não encontrado",
+    "- Rate Limiting (Security)",
+    "  Problema: Não foi possível verificar middlewares",
+    "- Encryption at Rest (Data Protection)",
+    "  Problema: Configuração de banco de dados não encontrada",
+    "- Data Backup (Data Protection)",
+    "  Problema: docker-compose.yml não encontrado",
+    "- Data Retention (Data Protection)",
+    "  Problema: Não foi possível verificar modelos de dados",
+    "- Role-Based Access (Access Control)",
+    "  Problema: Não foi possível verificar sistema de autenticação",
+    "- Session Management (Access Control)",
+    "  Problema: Não foi possível verificar middlewares",
+    "- API Authentication (Access Control)",
+    "  Problema: Não foi possível verificar autenticação da API"
+  ],
+  "medium": [
+    "ATENÇÃO: Vulnerabilidades de média severidade encontradas",
+    "Planeje a correção das seguintes issues:",
+    "- Porta 3000 está aberta e acessível (open_port)",
+    "  Recomendação: Fechar portas não utilizadas ou restringir acesso"
+  ],
+  "low": [
+    "MELHORIAS: Vulnerabilidades de baixa severidade encontradas",
+    "Considere as seguintes melhorias:"
+  ]
+}

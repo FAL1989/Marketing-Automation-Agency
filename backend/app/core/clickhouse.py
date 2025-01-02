@@ -1,98 +1,40 @@
 """
-ClickHouse client and metrics functions
+Módulo para integração com ClickHouse para métricas.
 """
 
-from typing import Dict, Any
-import aiohttp
-from aiochclient import ChClient
+from typing import Dict, Any, List
+import logging
+from datetime import datetime, timedelta
+
 from app.core.config import settings
 
-__all__ = ['get_metrics', 'clickhouse_client']
+logger = logging.getLogger(__name__)
 
 class ClickHouseClient:
+    """Cliente para interação com o ClickHouse"""
+    
     def __init__(self):
-        self.url = settings.CLICKHOUSE_URL
-        self.user = settings.CLICKHOUSE_USER
-        self.password = settings.CLICKHOUSE_PASSWORD
-        self.database = settings.CLICKHOUSE_DB
-        self.session = None
-        self.client = None
-    
+        self.enabled = False  # Desabilitado por padrão
+        
     async def connect(self):
-        """Estabelece conexão com ClickHouse"""
-        if not self.session:
-            self.session = aiohttp.ClientSession()
-            self.client = ChClient(
-                self.session, 
-                url=self.url,
-                user=self.user,
-                password=self.password,
-                database=self.database
-            )
+        """Conecta ao ClickHouse"""
+        pass
     
-    async def close(self):
-        """Fecha conexão com ClickHouse"""
-        if self.session:
-            await self.session.close()
-            self.session = None
-            self.client = None
-
-    async def execute(self, query: str):
-        """Executa query no ClickHouse"""
-        if not self.client:
-            await self.connect()
-        return await self.client.execute(query)
-
-    async def fetchall(self, query: str) -> list:
-        """Executa query e retorna todos os resultados"""
-        if not self.client:
-            await self.connect()
-        return [dict(row) async for row in self.client.iterate(query)]
-
-    async def fetchone(self, query: str) -> Dict[str, Any]:
-        """Executa query e retorna primeiro resultado"""
-        if not self.client:
-            await self.connect()
-        async for row in self.client.iterate(query):
-            return dict(row)
-        return None
+    async def store_metric(self, metric_name: str, value: float, tags: Dict[str, str] = None):
+        """Armazena uma métrica"""
+        if not self.enabled:
+            return
+        
+    async def get_metrics(self, metric_name: str, start_time: datetime, end_time: datetime = None) -> List[Dict[str, Any]]:
+        """Recupera métricas"""
+        if not self.enabled:
+            return []
+        return []
 
 clickhouse_client = ClickHouseClient()
 
-async def get_metrics() -> Dict[str, Any]:
-    """
-    Obtém métricas do ClickHouse
-    """
-    try:
-        # Exemplo de consulta para obter métricas
-        query = """
-            SELECT 
-                count() as total_requests,
-                avg(response_time) as avg_response_time,
-                max(response_time) as max_response_time
-            FROM request_logs
-            WHERE timestamp >= now() - INTERVAL 1 DAY
-        """
-        result = await clickhouse_client.fetchone(query)
-        
-        if not result:
-            return {
-                "total_requests": 0,
-                "avg_response_time": 0,
-                "max_response_time": 0
-            }
-            
-        return {
-            "total_requests": result["total_requests"],
-            "avg_response_time": float(result["avg_response_time"]),
-            "max_response_time": float(result["max_response_time"])
-        }
-        
-    except Exception as e:
-        # Em caso de erro, retorna métricas zeradas
-        return {
-            "total_requests": 0,
-            "avg_response_time": 0,
-            "max_response_time": 0,
-            "error": str(e)
-        } 
+async def get_metrics(metric_name: str, hours: int = 24) -> List[Dict[str, Any]]:
+    """Helper function para obter métricas"""
+    end_time = datetime.utcnow()
+    start_time = end_time - timedelta(hours=hours)
+    return await clickhouse_client.get_metrics(metric_name, start_time, end_time) 

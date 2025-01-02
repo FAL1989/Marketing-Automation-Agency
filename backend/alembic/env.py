@@ -12,10 +12,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
 
-# Importa os modelos
-from app.models.user import Base as UserBase
-from app.models.content import Base as ContentBase
-from app.models.generation import Base as GenerationBase
+# Import the Base and all models
+from app.db.base_class import Base
+from app.db.base_all import *  # noqa
+from app.core.config import settings
+from app.db.sync_session import sync_engine
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -28,16 +29,7 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-target_metadata = [UserBase.metadata, ContentBase.metadata, GenerationBase.metadata]
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
-
-def get_url():
-    """Retorna a URL do banco de dados das variáveis de ambiente"""
-    return os.getenv("DATABASE_URL", "postgresql://dbuser:password@localhost:5432/db")
+target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -49,9 +41,8 @@ def run_migrations_offline() -> None:
 
     Calls to context.execute() here emit the given string to the
     script output.
-
     """
-    url = get_url()
+    url = str(settings.SQLALCHEMY_DATABASE_URI).replace("postgresql+asyncpg", "postgresql+psycopg2")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -68,19 +59,11 @@ def run_migrations_online() -> None:
 
     In this scenario we need to create an Engine
     and associate a connection with the context.
-
     """
-    configuration = config.get_section(config.config_ini_section)
-    configuration["sqlalchemy.url"] = get_url()
-    connectable = engine_from_config(
-        configuration,
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-
-    with connectable.connect() as connection:
+    with sync_engine.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata
         )
 
         with context.begin_transaction():

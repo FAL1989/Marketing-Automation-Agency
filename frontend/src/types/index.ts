@@ -148,7 +148,23 @@ export interface UserSettings {
   security: {
     mfaEnabled: boolean;
     sessionTimeout: number;
+    mfaRecoveryEmail?: string;
+    lastMFAVerification?: string;
   };
+}
+
+export interface MFASetupResponse {
+  message: string;
+  qr_uri: string;
+  backup_codes: string[];
+}
+
+export interface MFAVerifyRequest {
+  code: string;
+}
+
+export interface MFAResponse {
+  message: string;
 }
 
 export interface AuthContextData {
@@ -218,6 +234,7 @@ export type MetricIcon = React.ForwardRefExoticComponent<
 export interface AuthResponse {
   token: string;
   user: User;
+  requiresMfa: boolean;
 }
 
 export interface ErrorResponse {
@@ -232,4 +249,20 @@ export interface CreateTemplateData {
     content: string;
     parameters: TemplateParameter[];
     isPublic: boolean;
+}
+
+export interface MFAStatus {
+  enabled: boolean;
+  lastVerification: string | null;
+  recoveryEmail: string | null;
+  attempts: number;
+  lockedUntil: string | null;
+}
+
+export interface MFAMetrics {
+  totalAttempts: number;
+  successRate: number;
+  averageVerificationTime: number;
+  backupCodesUsed: number;
+  lockedAccounts: number;
 }

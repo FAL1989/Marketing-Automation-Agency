@@ -2,6 +2,6 @@
 Core module initialization
 """
 
-from .clickhouse import get_metrics, clickhouse_client
+from .config import Settings, get_settings
 
-__all__ = ['get_metrics', 'clickhouse_client'] 
+__all__ = ["Settings", "get_settings"] 

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{ app_name }} - Alerta de Segurança: MFA Desabilitado</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            max-width: 150px;
+            margin-bottom: 20px;
+        }
+        .content {
+            background: #f9f9f9;
+            padding: 30px;
+            border-radius: 5px;
+        }
+        .alert {
+            background: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .warning {
+            color: #d63031;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #2ecc71;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="{{ app_name }}_logo.png" alt="{{ app_name }}" class="logo">
+        <h1>Alerta de Segurança</h1>
+    </div>
+    
+    <div class="content">
+        <div class="alert">
+            <h2>🚨 Autenticação de Dois Fatores (MFA) Desabilitada</h2>
+            <p>A autenticação de dois fatores foi desabilitada em sua conta no {{ app_name }}.</p>
+        </div>
+        
+        <p>Se você não realizou esta ação:</p>
+        <ol>
+            <li>Acesse sua conta imediatamente</li>
+            <li>Altere sua senha</li>
+            <li>Reative a autenticação de dois fatores</li>
+            <li>Verifique as atividades recentes da conta</li>
+            <li>Entre em contato com nosso suporte</li>
+        </ol>
+        
+        <p class="warning">
+            IMPORTANTE: A autenticação de dois fatores é uma camada adicional de segurança essencial para proteger sua conta.
+        </p>
+        
+        <div style="text-align: center;">
+            <a href="{{ app_url }}/settings/security" class="button">Verificar Configurações de Segurança</a>
+        </div>
+        
+        <p>Recomendações de segurança adicionais:</p>
+        <ul>
+            <li>Use senhas fortes e únicas</li>
+            <li>Não compartilhe suas credenciais</li>
+            <li>Mantenha seu dispositivo seguro</li>
+            <li>Monitore regularmente as atividades da conta</li>
+        </ul>
+    </div>
+    
+    <div class="footer">
+        <p>Este é um email automático, por favor não responda.</p>
+        <p>{{ app_name }} - Segurança em primeiro lugar</p>
+        <p>Se precisar de ajuda, entre em contato com nosso suporte: {{ support_email }}</p>
+    </div>
+</body>
+</html> 

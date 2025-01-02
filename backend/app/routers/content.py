@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 import random
 import asyncio
+import logging
 
-from ..database.connection import get_db
+from ..db.deps import get_db
 from ..services.content_service import ContentService
 from ..schemas.content import Content, ContentCreate, ContentUpdate
 from ..dependencies import get_current_user
@@ -14,13 +15,29 @@ from ..core.config import settings
 from ..models.content import Content as ContentModel
 
 router = APIRouter(prefix="/contents", tags=["contents"])
-content_service = ContentService()
+logger = logging.getLogger(__name__)
+
+# Singleton global do ContentService
+_content_service = ContentService()
+
+async def get_content_service() -> ContentService:
+    """Dependência para obter uma instância do ContentService"""
+    try:
+        await _content_service.ensure_initialized()
+        return _content_service
+    except Exception as e:
+        logger.error(f"Failed to get ContentService: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Service temporarily unavailable. Please try again later."
+        )
 
 @router.post("/", response_model=Content)
 async def create_content(
     content: ContentCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    content_service: ContentService = Depends(get_content_service)
 ):
     """
     Cria um novo conteúdo para geração.
@@ -54,7 +71,8 @@ async def create_content(
 async def generate_content(
     content_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    content_service: ContentService = Depends(get_content_service)
 ):
     """
     Inicia o processo de geração de conteúdo usando o AIOrchestrator.
@@ -85,7 +103,8 @@ async def list_contents(
     skip: int = 0,
     limit: int = 10,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    content_service: ContentService = Depends(get_content_service)
 ):
     """
     Lista todos os conteúdos do usuário atual.
@@ -96,7 +115,8 @@ async def list_contents(
 async def get_content(
     content_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    content_service: ContentService = Depends(get_content_service)
 ):
     """
     Retorna um conteúdo específico.
@@ -119,7 +139,8 @@ async def update_content(
     content_id: int,
     content_update: ContentUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    content_service: ContentService = Depends(get_content_service)
 ):
     """
     Atualiza um conteúdo existente.
@@ -136,7 +157,8 @@ async def update_content(
 async def delete_content(
     content_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    content_service: ContentService = Depends(get_content_service)
 ):
     """
     Remove um conteúdo existente.
@@ -168,7 +190,8 @@ async def generate_content(
     template_id: int,
     parameters: dict,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    content_service: ContentService = Depends(get_content_service)
 ):
     """
     Gera conteúdo baseado em um template e parâmetros usando a OpenAI.

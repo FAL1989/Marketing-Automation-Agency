@@ -1,0 +1,17 @@
+{
+  "name": "security-tests",
+  "version": "1.0.0",
+  "description": "Testes de segurança do projeto",
+  "main": "run-all-security-tests.js",
+  "scripts": {
+    "test": "node run-all-security-tests.js",
+    "pentest": "node run-pentest.js",
+    "audit": "node security-audit.js",
+    "compliance": "node compliance-check.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "fs": "0.0.1-security",
+    "path": "^0.12.7"
+  }
+} 
