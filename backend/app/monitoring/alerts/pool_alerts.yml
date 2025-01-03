@@ -1,0 +1,78 @@
+groups:
+  - name: pool_alerts
+    rules:
+      # Alertas de Capacidade
+      - alert: PoolNearCapacity
+        expr: db_pool_available_connections{pool_type="sqlalchemy"} < 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pool de conexões próximo da capacidade máxima"
+          description: "Apenas {{ $value }} conexões disponíveis no pool"
+
+      - alert: HighPoolOverflow
+        expr: rate(db_pool_overflow_total{pool_type="sqlalchemy"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alta taxa de overflow no pool"
+          description: "Taxa de overflow de {{ $value }} por segundo nos últimos 5 minutos"
+
+      # Alertas de Performance
+      - alert: SlowConnections
+        expr: histogram_quantile(0.95, rate(db_connection_time_seconds_bucket{pool_type="sqlalchemy"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Conexões lentas detectadas"
+          description: "95% das conexões estão levando mais de 1 segundo"
+
+      - alert: HighQueryLatency
+        expr: histogram_quantile(0.95, rate(db_query_latency_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latência elevada nas queries"
+          description: "95% das queries estão levando mais de 500ms"
+
+      # Alertas de Retry
+      - alert: HighRetryRate
+        expr: rate(db_retry_attempts_total{pool_type="sqlalchemy"}[5m]) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alta taxa de retries nas conexões"
+          description: "Mais de 0.2 retries por segundo nos últimos 5 minutos"
+
+      - alert: LowRetrySuccess
+        expr: rate(db_retry_success_total{pool_type="sqlalchemy"}[5m]) / rate(db_retry_attempts_total{pool_type="sqlalchemy"}[5m]) < 0.5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Baixa taxa de sucesso nos retries"
+          description: "Menos de 50% dos retries estão tendo sucesso"
+
+      # Alertas de Saúde
+      - alert: UnhealthyPool
+        expr: db_pool_health_status{pool_type="sqlalchemy"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pool de conexões em estado não saudável"
+          description: "O pool de conexões está reportando estado não saudável"
+
+      - alert: PersistentUnhealthyPool
+        expr: avg_over_time(db_pool_health_status{pool_type="sqlalchemy"}[15m]) < 0.8
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pool de conexões consistentemente não saudável"
+          description: "O pool está reportando estado não saudável por mais de 80% do tempo nos últimos 15 minutos" 
