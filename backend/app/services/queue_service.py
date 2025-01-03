@@ -3,7 +3,7 @@ import json
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from ..core.redis import redis_manager
+from ..core.redis import get_redis
 from .monitoring_service import MonitoringService
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class QueueService:
         
     async def _get_redis(self):
         """Obtém cliente Redis do gerenciador central"""
-        return await redis_manager.get_client('queue')
+        return await get_redis()
 
     async def enqueue(
         self,
@@ -40,13 +40,13 @@ class QueueService:
             item_id = f"{queue_name}:{datetime.utcnow().timestamp()}"
             score = priority * 1000 + (datetime.utcnow().timestamp() if not delay else datetime.utcnow().timestamp() + delay)
             
-            async with await self._get_redis() as redis:
-                # Adiciona à fila principal ou de delay
-                target_queue = f"{queue_name}:delayed" if delay else queue_name
-                await redis.zadd(
-                    target_queue,
-                    {json.dumps({"id": item_id, "data": data}): score}
-                )
+            redis = await self._get_redis()
+            # Adiciona à fila principal ou de delay
+            target_queue = f"{queue_name}:delayed" if delay else queue_name
+            await redis.zadd(
+                target_queue,
+                {json.dumps({"id": item_id, "data": data}): score}
+            )
                 
             return item_id
         except Exception as e:
@@ -67,51 +67,63 @@ class QueueService:
         async def process_queue():
             while True:
                 try:
-                    async with await self._get_redis() as redis:
-                        # Move itens atrasados para a fila principal
-                        now = datetime.utcnow().timestamp()
-                        delayed_items = await redis.zrangebyscore(
+                    redis = await self._get_redis()
+                    # Move itens atrasados para a fila principal
+                    now = datetime.utcnow().timestamp()
+                    delayed_items = await redis.zrangebyscore(
+                        f"{queue_name}:delayed",
+                        0,
+                        now,
+                        withscores=True
+                    )
+                    
+                    if delayed_items:
+                        await redis.zremrangebyscore(
                             f"{queue_name}:delayed",
                             0,
-                            now,
-                            withscores=True
+                            now
                         )
-                        
-                        if delayed_items:
-                            await redis.zremrangebyscore(
-                                f"{queue_name}:delayed",
-                                0,
-                                now
+                        for item, score in delayed_items:
+                            await redis.zadd(queue_name, {item: score})
+                    
+                    # Processa itens da fila principal
+                    items = await redis.zrange(
+                        queue_name,
+                        0,
+                        batch_size - 1,
+                        withscores=True
+                    )
+                    
+                    if not items:
+                        await asyncio.sleep(polling_interval)
+                        continue
+                    
+                    for item_json, _ in items:
+                        item = json.loads(item_json)
+                        try:
+                            await handler(item["data"])
+                            await redis.zrem(queue_name, item_json)
+                            
+                            # Atualiza métricas
+                            await self.monitoring.increment_counter(
+                                "queue_processed_items",
+                                {"queue": queue_name, "status": "success"}
                             )
-                            for item, score in delayed_items:
-                                await redis.zadd(queue_name, {item: score})
-                        
-                        # Processa itens da fila principal
-                        items = await redis.zrange(
-                            queue_name,
-                            0,
-                            batch_size - 1,
-                            withscores=True
-                        )
-                        
-                        if not items:
-                            await asyncio.sleep(polling_interval)
-                            continue
-                        
-                        for item_json, _ in items:
-                            item = json.loads(item_json)
-                            try:
-                                await handler(item["data"])
-                                await redis.zrem(queue_name, item_json)
-                            except Exception as e:
-                                logger.error(f"Erro ao processar item {item['id']}: {str(e)}")
-                                # Move para fila de erro
-                                await redis.zadd(
-                                    f"{queue_name}:errors",
-                                    {item_json: datetime.utcnow().timestamp()}
-                                )
-                                await redis.zrem(queue_name, item_json)
-                                
+                        except Exception as e:
+                            logger.error(f"Erro ao processar item {item['id']}: {str(e)}")
+                            # Move para fila de erro
+                            await redis.zadd(
+                                f"{queue_name}:errors",
+                                {item_json: datetime.utcnow().timestamp()}
+                            )
+                            await redis.zrem(queue_name, item_json)
+                            
+                            # Atualiza métricas
+                            await self.monitoring.increment_counter(
+                                "queue_processed_items",
+                                {"queue": queue_name, "status": "error"}
+                            )
+                            
                 except Exception as e:
                     logger.error(f"Erro no worker da fila {queue_name}: {str(e)}")
                     await asyncio.sleep(polling_interval)
@@ -131,8 +143,8 @@ class QueueService:
     async def get_queue_size(self, queue_name: str) -> int:
         """Retorna o número de itens na fila"""
         try:
-            async with await self._get_redis() as redis:
-                return await redis.zcard(queue_name)
+            redis = await self._get_redis()
+            return await redis.zcard(queue_name)
         except Exception as e:
             logger.error(f"Erro ao obter tamanho da fila: {str(e)}")
             return 0
@@ -140,9 +152,10 @@ class QueueService:
     async def clear_queue(self, queue_name: str) -> None:
         """Limpa todos os itens de uma fila"""
         try:
-            async with await self._get_redis() as redis:
-                await redis.delete(queue_name)
-                await redis.delete(f"{queue_name}:delayed")
+            redis = await self._get_redis()
+            await redis.delete(queue_name)
+            await redis.delete(f"{queue_name}:delayed")
+            await redis.delete(f"{queue_name}:errors")
         except Exception as e:
             logger.error(f"Erro ao limpar fila: {str(e)}")
             raise

@@ -5,16 +5,23 @@ Módulo principal da aplicação FastAPI
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+from prometheus_client import make_asgi_app
+from starlette.middleware.base import BaseHTTPMiddleware
 from .core.config import settings
 from .db.session import engine
-from .db.base_class import Base
+from .db.base_all import Base
 from .routers import api_router
 from .middleware.security import SecurityMiddleware
 from .middleware.rate_limit import RateLimitMiddleware
-from .core.cache_optimizer import cache_optimizer
-from .core.redis_config import configure_redis
-from .services.cache_service import cache_service
+from .middleware.metrics import metrics_middleware
 from contextlib import asynccontextmanager
+
+# Importa todos os modelos para que o SQLAlchemy os conheça
+from .models.user import User  # noqa
+from .models.audit import AuditLog  # noqa
+from .models.content import Content  # noqa
+from .models.template import Template  # noqa
+from .models.generation import Generation  # noqa
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,21 +31,15 @@ async def lifespan(app: FastAPI):
     """Gerencia o ciclo de vida da aplicação"""
     # Startup
     logger.info("Iniciando serviços...")
-    
-    # Configura Redis
-    logger.info("Configurando Redis...")
-    redis_configured = await configure_redis(cache_service.redis_client)
-    if not redis_configured:
-        logger.warning("Falha ao configurar Redis. Usando configurações padrão.")
-    
-    # Inicia otimizador de cache
-    await cache_optimizer.start()
-    
+    # Cria as tabelas do banco de dados
+    async with engine.begin() as conn:
+        logger.info("Criando tabelas do banco de dados...")
+        await conn.run_sync(Base.metadata.create_all)
+        logger.info("Tabelas criadas com sucesso!")
     yield
-    
     # Shutdown
     logger.info("Desligando serviços...")
-    await cache_optimizer.stop()
+    await engine.dispose()
 
 # Cria a aplicação FastAPI
 app = FastAPI(
@@ -60,24 +61,14 @@ if settings.BACKEND_CORS_ORIGINS:
 # Middlewares
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.middleware("http")(metrics_middleware)
 
 # Routers
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-@app.on_event("startup")
-async def startup():
-    """
-    Cria as tabelas do banco de dados na inicialização
-    """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-@app.on_event("shutdown")
-async def shutdown():
-    """
-    Fecha as conexões na finalização
-    """
-    await engine.dispose()
+# Endpoint Prometheus - ajustado para evitar redirecionamento
+metrics_app = make_asgi_app()
+app.mount("/metrics/", metrics_app, name="metrics")
 
 @app.get("/")
 async def root():

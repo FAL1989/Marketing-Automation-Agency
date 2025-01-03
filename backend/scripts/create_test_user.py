@@ -1,10 +1,10 @@
 from sqlalchemy.orm import Session
-from app.database.connection import SessionLocal
+from app.db.session import AsyncSessionLocal
 from app.models.user import User
 from app.core.security import get_password_hash
 
 def create_test_user():
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
         # Verificar se o usuário já existe
         test_user = db.query(User).filter(User.email == "test@example.com").first()

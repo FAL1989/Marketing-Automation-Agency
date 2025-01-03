@@ -8,13 +8,11 @@ from ..core.config import settings
 
 # Criar engine síncrono do SQLAlchemy
 sync_engine = create_engine(
-    str(settings.SQLALCHEMY_DATABASE_URI).replace("postgresql+asyncpg", "postgresql+psycopg2"),
+    str(settings.DATABASE_URL),
     echo=settings.DEBUG,
     future=True,
     pool_pre_ping=True,
-    pool_size=settings.SQLALCHEMY_POOL_SIZE,
-    max_overflow=settings.SQLALCHEMY_MAX_OVERFLOW,
-    pool_timeout=settings.SQLALCHEMY_POOL_TIMEOUT,
+    connect_args={"check_same_thread": False}  # Necessário para SQLite
 )
 
 # Criar fábrica de sessões síncrona

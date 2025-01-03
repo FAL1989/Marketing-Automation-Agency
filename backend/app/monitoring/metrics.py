@@ -1,5 +1,33 @@
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Histogram, Gauge, REGISTRY
+from prometheus_client.core import GaugeMetricFamily
 from typing import Dict, Any
+import psutil
+
+class SystemCollector:
+    def collect(self):
+        # CPU
+        cpu_usage = psutil.cpu_percent()
+        yield GaugeMetricFamily('system_cpu_usage', 'CPU usage in percent', value=cpu_usage)
+        
+        # Memory
+        memory = psutil.virtual_memory()
+        yield GaugeMetricFamily('system_memory_usage', 'Memory usage in percent', value=memory.percent)
+        yield GaugeMetricFamily('system_memory_available', 'Available memory in bytes', value=memory.available)
+        yield GaugeMetricFamily('system_memory_total', 'Total memory in bytes', value=memory.total)
+        
+        # Disk
+        disk = psutil.disk_usage('/')
+        yield GaugeMetricFamily('system_disk_usage', 'Disk usage in percent', value=disk.percent)
+        yield GaugeMetricFamily('system_disk_free', 'Free disk space in bytes', value=disk.free)
+        yield GaugeMetricFamily('system_disk_total', 'Total disk space in bytes', value=disk.total)
+        
+        # Network
+        net = psutil.net_io_counters()
+        yield GaugeMetricFamily('system_network_bytes_sent', 'Network bytes sent', value=net.bytes_sent)
+        yield GaugeMetricFamily('system_network_bytes_recv', 'Network bytes received', value=net.bytes_recv)
+
+# Registra o coletor
+REGISTRY.register(SystemCollector())
 
 class PerformanceMetrics:
     def __init__(self):

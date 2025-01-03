@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from . import auth, users, content, templates, analytics, test, health, metrics
+from . import auth, users, content, templates, analytics, test, health, monitoring
 
 api_router = APIRouter()
 
@@ -11,4 +11,4 @@ api_router.include_router(templates.router, prefix="/templates", tags=["template
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(test.router, prefix="/test", tags=["test"])
 api_router.include_router(health.router, tags=["health"])
-api_router.include_router(metrics.router, tags=["metrics"]) 
+api_router.include_router(monitoring.router, tags=["monitoring"]) 

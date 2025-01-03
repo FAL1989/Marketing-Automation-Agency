@@ -19,10 +19,10 @@ scrape_configs:
     static_configs:
       - targets: ['cadvisor:8080']
 
-  - job_name: 'application'
-    metrics_path: '/metrics'
+  - job_name: 'backend'
+    metrics_path: '/metrics/'
     static_configs:
-      - targets: ['app:8000']
+      - targets: ['localhost:8000']
 
   - job_name: 'pushgateway'
     honor_labels: true

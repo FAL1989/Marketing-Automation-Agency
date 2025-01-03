@@ -32,14 +32,25 @@ class Settings(BaseSettings):
     # Banco de dados
     DATABASE_URL: str = "sqlite+aiosqlite:///./test.db"
     
+    # Configurações do Pool SQLAlchemy
+    SQLALCHEMY_POOL_SIZE: int = 20  # Aumentado para suportar mais conexões simultâneas
+    SQLALCHEMY_MAX_OVERFLOW: int = 10  # Conexões adicionais permitidas além do pool_size
+    SQLALCHEMY_POOL_TIMEOUT: int = 30  # Tempo máximo de espera por uma conexão
+    SQLALCHEMY_POOL_RECYCLE: int = 1800  # Recicla conexões após 30 minutos
+    SQLALCHEMY_POOL_PRE_PING: bool = True  # Verifica conexões antes de usar
+    
     # Redis
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_URL: str = "redis://localhost:6379/0"
-    REDIS_POOL_SIZE: int = 10
-    REDIS_MAX_CONNECTIONS: int = 50
+    REDIS_POOL_SIZE: int = 20  # Aumentado para melhor throughput
+    REDIS_MAX_CONNECTIONS: int = 100  # Aumentado limite máximo
     REDIS_TIMEOUT: int = 5
+    REDIS_RETRY_ON_TIMEOUT: bool = True
+    REDIS_RETRY_MAX_ATTEMPTS: int = 3
+    REDIS_RETRY_DELAY: float = 0.1  # Delay entre tentativas em segundos
+    REDIS_HEALTH_CHECK_INTERVAL: int = 30  # Intervalo de health check em segundos
     
     # Cache
     CACHE_ENABLED: bool = True

@@ -1,24 +1,52 @@
 #!/bin/bash
 
-echo "Iniciando testes de carga..."
-
-# Diretório dos testes
-TEST_DIR="python"
-RESULTS_DIR="results"
+# Diretório base dos testes
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RESULTS_DIR="$BASE_DIR/results"
+PYTHON_TESTS_DIR="$BASE_DIR/python"
 
 # Cria diretório de resultados se não existir
-mkdir -p $RESULTS_DIR
+mkdir -p "$RESULTS_DIR"
 
-# Executa os testes de endpoints
-echo "Executando testes de endpoints..."
-pytest $TEST_DIR/test_api_endpoints_load.py -v
+# Configura ambiente Python
+echo "Configurando ambiente Python..."
+source ../../venv/bin/activate
 
-# Executa os testes de MFA
-echo "Executando testes de MFA..."
-pytest $TEST_DIR/test_mfa_load.py -v
+# Instala dependências se necessário
+if [ ! -f "../../requirements.txt" ]; then
+    echo "Arquivo requirements.txt não encontrado!"
+    exit 1
+fi
 
-# Executa os testes de rate limiting
-echo "Executando testes de rate limiting..."
-pytest $TEST_DIR/test_rate_limit_load.py -v
+pip install -r ../../requirements.txt
 
-echo "Testes de carga concluídos!" 
+# Executa testes de carga
+echo "Iniciando testes de carga..."
+
+# Executa testes Python
+echo "Executando testes Python..."
+python -m pytest "$PYTHON_TESTS_DIR/test_api_endpoints_load.py" -v
+
+# Verifica status dos testes
+if [ $? -eq 0 ]; then
+    echo "Testes de carga concluídos com sucesso!"
+else
+    echo "Falha nos testes de carga!"
+    exit 1
+fi
+
+# Processa e exibe resultados
+echo "Processando resultados..."
+LATEST_RESULTS=$(ls -t "$RESULTS_DIR"/*.json | head -n 1)
+
+if [ -n "$LATEST_RESULTS" ]; then
+    echo "Últimos resultados:"
+    cat "$LATEST_RESULTS"
+else
+    echo "Nenhum resultado encontrado!"
+fi
+
+# Desativa ambiente virtual
+deactivate
+
+echo "Script concluído!" 

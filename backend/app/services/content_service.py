@@ -218,10 +218,26 @@ class ContentService:
             logger.error(f"Error deleting content: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error deleting content: {str(e)}")
 
-    async def __del__(self):
-        """Cleanup resources"""
-        if self.ai_service:
+    def __del__(self):
+        """Cleanup do serviço"""
+        if hasattr(self, 'queue_service') and self.queue_service:
             try:
-                await self.ai_service.close()
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self.queue_service.close())
+                else:
+                    loop.run_until_complete(self.queue_service.close())
             except Exception as e:
-                logger.error(f"Error closing AI service: {str(e)}") 
+                logger.error(f"Erro ao fechar queue_service: {e}")
+                
+        if hasattr(self, 'rate_limiter') and self.rate_limiter:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self.rate_limiter.close())
+                else:
+                    loop.run_until_complete(self.rate_limiter.close())
+            except Exception as e:
+                logger.error(f"Erro ao fechar rate_limiter: {e}")
+                
+        logger.info("ContentService finalizado") 
