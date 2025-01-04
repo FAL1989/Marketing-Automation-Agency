@@ -109,7 +109,7 @@ def test_xss_protection(test_client, test_user):
     assert response.status_code in [400, 422]
 
 def test_sql_injection(test_client):
-    """Testa a proteção contra SQL Injection"""
+    """Testa proteção contra SQL injection"""
     response = test_client.post(
         f"{settings.API_V1_STR}/auth/login",
         data={
@@ -119,20 +119,5 @@ def test_sql_injection(test_client):
     )
     assert response.status_code == 401  # Não deve permitir login
 
-def test_circuit_breaker(test_client):
-    """Testa o circuit breaker"""
-    # Força falhas para ativar o circuit breaker
-    responses = []
-    for _ in range(10):
-        responses.append(
-            test_client.post(
-                f"{settings.API_V1_STR}/auth/login",
-                data={
-                    "username": "wrong@example.com",
-                    "password": "wrong_password"
-                }
-            )
-        )
-    
-    # Verifica se o circuit breaker foi ativado
-    assert any(r.status_code == 503 for r in responses) 
+# Nota: O teste do circuit breaker foi movido para test_middleware.py
+# para consolidar todos os testes relacionados a middlewares em um único lugar 

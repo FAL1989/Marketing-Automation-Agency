@@ -4,139 +4,98 @@ Testes de integração para autenticação
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
-from app.main import app
-from app.models.user import User
+import asyncio
+from redis.asyncio import Redis
+from app.core.monitoring import MonitoringService
+from app.core.redis import redis_manager, get_redis
+from app.core.config import settings
+import time
+from asyncio import TimeoutError
+import socket
 import logging
-import json
+from app.main import app
+from datetime import datetime
 
-logger = logging.getLogger(__name__)
+client = TestClient(app)
 
-@pytest.mark.asyncio
-async def test_login(client: TestClient, test_user: User):
-    """Testa o endpoint de login com credenciais válidas"""
+@pytest.fixture
+async def redis():
+    await redis_manager.initialize()
+    redis_client = await redis_manager.get_redis()
     try:
-        logger.info(f"Testando login para usuário: {test_user.email}")
-        
-        response = client.post(
-            "/api/v1/auth/login",
-            data={
-                "username": test_user.email,
-                "password": "testpass123"  # Senha definida no fixture test_user
-            }
-        )
-        
-        logger.info(f"Status code: {response.status_code}")
-        try:
-            response_json = response.json()
-            logger.info(f"Response body: {json.dumps(response_json, indent=2)}")
-        except Exception as e:
-            logger.error(f"Erro ao decodificar response: {e}")
-            logger.error(f"Response text: {response.text}")
-            raise
-        
-        assert response.status_code == 200, "Login falhou"
-        assert "access_token" in response_json, "Token não encontrado na resposta"
-        assert response_json["token_type"] == "bearer", "Tipo de token incorreto"
-        
-        logger.info("Teste de login concluído com sucesso")
-        
-    except Exception as e:
-        logger.error(f"Erro no teste de login: {e}")
-        raise
+        yield redis_client
+    finally:
+        await redis_manager.close()
 
 @pytest.mark.asyncio
-async def test_login_invalid_credentials(client: TestClient, test_user: User):
+async def test_login(redis):
+    """Testa o login com credenciais válidas"""
+    credentials = {
+        "username": "test@example.com",
+        "password": "test123"
+    }
+    
+    response = client.post("/auth/login", json=credentials)
+    assert response.status_code == 200, "Login falhou"
+    result = response.json()
+    assert "access_token" in result
+    assert "token_type" in result
+    assert result["token_type"] == "bearer"
+
+@pytest.mark.asyncio
+async def test_login_invalid_credentials(redis):
     """Testa o login com credenciais inválidas"""
-    try:
-        logger.info("Testando login com credenciais inválidas")
-        
-        response = client.post(
-            "/api/v1/auth/login",
-            data={
-                "username": "invalid@example.com",
-                "password": "wrongpassword"
-            }
-        )
-        
-        logger.info(f"Status code: {response.status_code}")
-        try:
-            response_json = response.json()
-            logger.info(f"Response body: {json.dumps(response_json, indent=2)}")
-        except Exception as e:
-            logger.error(f"Erro ao decodificar response: {e}")
-            logger.error(f"Response text: {response.text}")
-            raise
-        
-        assert response.status_code == 401, "Status code incorreto para credenciais inválidas"
-        assert response_json["detail"] == "Credenciais inválidas", "Mensagem de erro incorreta"
-        
-        logger.info("Teste de login com credenciais inválidas concluído com sucesso")
-        
-    except Exception as e:
-        logger.error(f"Erro no teste de login com credenciais inválidas: {e}")
-        raise
+    credentials = {
+        "username": "invalid@example.com",
+        "password": "wrong"
+    }
+    
+    response = client.post("/auth/login", json=credentials)
+    assert response.status_code == 401, "Status code incorreto para credenciais inválidas"
+    result = response.json()
+    assert "detail" in result
+    assert "Invalid credentials" in result["detail"]
 
 @pytest.mark.asyncio
-async def test_login_rate_limit(client: TestClient, test_user: User):
-    """Testa o rate limiting no endpoint de login"""
-    try:
-        logger.info("Testando rate limit no login")
-        
-        # Tenta fazer login múltiplas vezes para acionar o rate limit
-        for i in range(31):  # Limite é 30 tentativas por minuto
-            response = client.post(
-                "/api/v1/auth/login",
-                data={
-                    "username": "test@example.com",
-                    "password": "wrongpassword"
-                }
-            )
-            logger.info(f"Tentativa {i+1}: status={response.status_code}")
-            
-            if response.status_code == 429:
-                break
-        
-        assert response.status_code == 429, "Rate limit não foi acionado"
-        response_json = response.json()
-        assert "detail" in response_json, "Mensagem de rate limit não encontrada"
-        assert "rate limit exceeded" in response_json["detail"].lower(), "Mensagem de rate limit incorreta"
-        
-        logger.info("Teste de rate limit no login concluído com sucesso")
-        
-    except Exception as e:
-        logger.error(f"Erro no teste de rate limit: {e}")
-        raise
+async def test_login_rate_limit(redis):
+    """Testa o rate limit no login"""
+    credentials = {
+        "username": "test@example.com",
+        "password": "test123"
+    }
+    
+    # Tenta login múltiplas vezes
+    for _ in range(settings.RATE_LIMIT_PER_MINUTE + 1):
+        response = client.post("/auth/login", json=credentials)
+    
+    # Última tentativa deve ser bloqueada
+    assert response.status_code == 429
+    result = response.json()
+    assert "detail" in result
+    assert "Too many requests" in result["detail"]
 
 @pytest.mark.asyncio
-async def test_login_mfa_required(client: TestClient, test_user: User):
-    """Testa o login quando MFA está habilitado"""
-    try:
-        logger.info("Testando login com MFA habilitado")
-        
-        # Primeiro faz login com credenciais corretas
-        response = client.post(
-            "/api/v1/auth/login",
-            data={
-                "username": test_user.email,
-                "password": "testpass123"
-            }
-        )
-        
-        logger.info(f"Status code inicial: {response.status_code}")
-        response_json = response.json()
-        logger.info(f"Response body: {json.dumps(response_json, indent=2)}")
-        
-        # Se MFA está habilitado, deve retornar 202 (Accepted) com token temporário
-        if test_user.mfa_enabled:
-            assert response.status_code == 202, "Status code incorreto para MFA pendente"
-            assert "temp_token" in response_json, "Token temporário não encontrado"
-        else:
-            assert response.status_code == 200, "Status code incorreto para login sem MFA"
-            assert "access_token" in response_json, "Token de acesso não encontrado"
-        
-        logger.info("Teste de login com MFA concluído com sucesso")
-        
-    except Exception as e:
-        logger.error(f"Erro no teste de login com MFA: {e}")
-        raise 
+async def test_login_mfa_required(redis):
+    """Testa o login com MFA requerido"""
+    # Primeiro faz login normal
+    credentials = {
+        "username": "mfa@example.com",
+        "password": "test123"
+    }
+    
+    response = client.post("/auth/login", json=credentials)
+    assert response.status_code == 200
+    result = response.json()
+    assert "mfa_required" in result
+    assert result["mfa_required"] == True
+    
+    # Tenta verificar MFA
+    mfa_code = {
+        "code": "123456",
+        "session_id": result["session_id"]
+    }
+    
+    response = client.post("/auth/mfa/verify", json=mfa_code)
+    assert response.status_code == 200
+    result = response.json()
+    assert "access_token" in result 

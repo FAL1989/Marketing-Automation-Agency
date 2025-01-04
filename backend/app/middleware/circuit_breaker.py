@@ -2,18 +2,17 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response, JSONResponse
 from typing import Dict
-from ..core.circuit_breaker import CircuitBreaker
+from ..core.circuit_breaker import CircuitBreaker, CircuitState
 import structlog
 from datetime import datetime
 
 logger = structlog.get_logger()
 
 DEFAULT_CONFIG = {
+    "service_name": "default",
     "failure_threshold": 5,
-    "recovery_timeout": 30.0,
-    "half_open_max_trials": 3,
-    "window_size": 100,
-    "window_duration": 60.0
+    "reset_timeout": 30,
+    "half_open_timeout": 5
 }
 
 class CircuitBreakerMiddleware(BaseHTTPMiddleware):
@@ -26,10 +25,10 @@ class CircuitBreakerMiddleware(BaseHTTPMiddleware):
             endpoints_config: Dicionário com configurações por endpoint
                 Ex: {
                     "/api/slow-endpoint": {
+                        "service_name": "slow_endpoint",
                         "failure_threshold": 3,
-                        "recovery_timeout": 30.0,
-                        "window_size": 100,
-                        "window_duration": 60.0
+                        "reset_timeout": 30,
+                        "half_open_timeout": 5
                     }
                 }
         """
@@ -42,6 +41,8 @@ class CircuitBreakerMiddleware(BaseHTTPMiddleware):
             # Mescla configurações default com as específicas do endpoint
             endpoint_config = DEFAULT_CONFIG.copy()
             endpoint_config.update(config)
+            if "service_name" not in endpoint_config:
+                endpoint_config["service_name"] = endpoint.replace("/", "_")
             self.circuit_breakers[endpoint] = CircuitBreaker(**endpoint_config)
             
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -63,14 +64,13 @@ class CircuitBreakerMiddleware(BaseHTTPMiddleware):
                 "circuit_breaker_error",
                 path=path,
                 error=str(e),
-                state=circuit_breaker.state.value,
-                metrics=circuit_breaker.get_metrics()
+                state=circuit_breaker.state.value
             )
             
             # Se o circuito está aberto, retorna 503
             if "Circuit breaker is OPEN" in str(e):
-                metrics = circuit_breaker.get_metrics()
-                retry_after = int(circuit_breaker.recovery_timeout - (datetime.now().timestamp() - circuit_breaker.last_failure_time))
+                status = await circuit_breaker.get_status()
+                retry_after = int(status["reset_timeout"] - (datetime.now().timestamp() - status["last_failure"]))
                 
                 return JSONResponse(
                     status_code=503,
@@ -80,21 +80,32 @@ class CircuitBreakerMiddleware(BaseHTTPMiddleware):
                     content={
                         "detail": "Service temporarily unavailable",
                         "retry_after": max(1, retry_after),
-                        "circuit_breaker_metrics": metrics
+                        "circuit_breaker_status": status
                     }
                 )
             
             # Para outros erros, propaga a exceção
             raise
             
-    def get_metrics(self) -> Dict[str, dict]:
+    async def get_metrics(self) -> Dict[str, dict]:
         """Retorna métricas de todos os circuit breakers"""
-        return {
-            endpoint: cb.get_metrics()
-            for endpoint, cb in self.circuit_breakers.items()
-        }
+        metrics = {}
+        for endpoint, cb in self.circuit_breakers.items():
+            try:
+                status = await cb.get_status()
+                metrics[endpoint] = status
+            except Exception as e:
+                logger.error(f"Erro ao obter métricas para {endpoint}: {e}")
+                metrics[endpoint] = {
+                    "error": str(e),
+                    "state": "unknown"
+                }
+        return metrics
         
-    def reset_all(self):
+    async def reset_all(self):
         """Reseta todos os circuit breakers"""
         for cb in self.circuit_breakers.values():
-            cb.reset() 
+            await cb._transition_state(CircuitState.CLOSED)
+            cb._failure_count = 0
+            cb._last_failure_time = None
+            cb._half_open_start = None 

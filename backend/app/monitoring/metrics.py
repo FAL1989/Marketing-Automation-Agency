@@ -1,7 +1,14 @@
-from prometheus_client import Counter, Histogram, Gauge, REGISTRY
+from prometheus_client import Counter, Histogram, Gauge, REGISTRY, start_http_server
 from prometheus_client.core import GaugeMetricFamily
 from typing import Dict, Any
 import psutil
+import threading
+
+# Inicializa o servidor HTTP do Prometheus em uma thread separada
+def start_prometheus_server(port=8000):
+    start_http_server(port)
+
+threading.Thread(target=start_prometheus_server, args=(8001,), daemon=True).start()
 
 class SystemCollector:
     def collect(self):

@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { AgentDashboard } from '../../components/agents/AgentDashboard';
 import { useAgents } from '../../hooks/useAgents';

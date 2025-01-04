@@ -1,10 +1,26 @@
 import logging
 import time
 from typing import Dict, Any, Optional
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Histogram, Gauge, CollectorRegistry
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Registro dedicado para métricas do MonitoringService
+MONITORING_REGISTRY = CollectorRegistry()
+
+def get_or_create_metric(metric_class, name, documentation, registry, **kwargs):
+    """Retorna uma métrica existente ou cria uma nova"""
+    try:
+        return metric_class(name, documentation, registry=registry, **kwargs)
+    except ValueError:
+        # Se a métrica já existe, retorna a existente
+        for metric in registry.collect():
+            if metric.name == name:
+                return next(
+                    m for m in registry._names_to_collectors.values()
+                    if isinstance(m, metric_class) and m._name == name
+                )
 
 class MonitoringService:
     """
@@ -12,70 +28,92 @@ class MonitoringService:
     """
     def __init__(self):
         # Métricas de API
-        self.api_requests_total = Counter(
+        self.api_requests_total = get_or_create_metric(
+            Counter,
             'api_requests_total',
             'Total de requisições à API',
-            ['endpoint', 'method', 'status']
+            MONITORING_REGISTRY,
+            labelnames=['endpoint', 'method', 'status']
         )
         
-        self.api_request_duration_seconds = Histogram(
+        self.api_request_duration_seconds = get_or_create_metric(
+            Histogram,
             'api_request_duration_seconds',
             'Duração das requisições à API',
-            ['endpoint'],
+            MONITORING_REGISTRY,
+            labelnames=['endpoint'],
             buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
         )
         
         # Métricas de Redis
-        self.redis_operations_total = Counter(
+        self.redis_operations_total = get_or_create_metric(
+            Counter,
             'redis_operations_total',
             'Total de operações no Redis',
-            ['operation', 'status']
+            MONITORING_REGISTRY,
+            labelnames=['operation', 'status']
         )
         
-        self.redis_operation_duration_seconds = Histogram(
+        self.redis_operation_duration_seconds = get_or_create_metric(
+            Histogram,
             'redis_operation_duration_seconds',
             'Duração das operações no Redis',
-            ['operation'],
+            MONITORING_REGISTRY,
+            labelnames=['operation'],
             buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25)
         )
         
-        self.redis_connections = Gauge(
+        self.redis_connections = get_or_create_metric(
+            Gauge,
             'redis_connections',
-            'Número de conexões ativas com Redis'
+            'Número de conexões ativas com Redis',
+            MONITORING_REGISTRY
         )
         
-        self.redis_memory_usage_bytes = Gauge(
+        self.redis_memory_usage_bytes = get_or_create_metric(
+            Gauge,
             'redis_memory_usage_bytes',
-            'Uso de memória do Redis em bytes'
+            'Uso de memória do Redis em bytes',
+            MONITORING_REGISTRY
         )
         
         # Métricas de cache
-        self.cache_hits_total = Counter(
+        self.cache_hits_total = get_or_create_metric(
+            Counter,
             'cache_hits_total',
-            'Total de hits no cache'
+            'Total de hits no cache',
+            MONITORING_REGISTRY
         )
         
-        self.cache_misses_total = Counter(
+        self.cache_misses_total = get_or_create_metric(
+            Counter,
             'cache_misses_total',
-            'Total de misses no cache'
+            'Total de misses no cache',
+            MONITORING_REGISTRY
         )
         
-        self.cache_size = Gauge(
+        self.cache_size = get_or_create_metric(
+            Gauge,
             'cache_size',
-            'Número de itens no cache'
+            'Número de itens no cache',
+            MONITORING_REGISTRY
         )
         
         # Métricas de rate limiting
-        self.rate_limit_exceeded_total = Counter(
+        self.rate_limit_exceeded_total = get_or_create_metric(
+            Counter,
             'rate_limit_exceeded_total',
             'Total de vezes que o rate limit foi excedido',
-            ['endpoint']
+            MONITORING_REGISTRY,
+            labelnames=['endpoint']
         )
         
-        self.rate_limit_current = Gauge(
+        self.rate_limit_current = get_or_create_metric(
+            Gauge,
             'rate_limit_current',
             'Número atual de requisições no período',
-            ['endpoint']
+            MONITORING_REGISTRY,
+            labelnames=['endpoint']
         )
     
     async def record_api_request(
@@ -185,6 +223,33 @@ class MonitoringService:
         Registra uma requisição com erro
         """
         await self.record_api_request(endpoint, "GET", status, 0.0)
+    
+    async def record_rate_limit_success(self, endpoint: str):
+        """
+        Registra um sucesso no rate limit
+        """
+        try:
+            self.api_requests_total.labels(
+                endpoint=endpoint,
+                method="RATE_LIMIT",
+                status="success"
+            ).inc()
+        except Exception as e:
+            logger.error(f"Erro ao registrar sucesso de rate limit: {str(e)}")
+    
+    async def record_rate_limit_failure(self, endpoint: str, error: str):
+        """
+        Registra uma falha no rate limit
+        """
+        try:
+            self.api_requests_total.labels(
+                endpoint=endpoint,
+                method="RATE_LIMIT",
+                status="failure"
+            ).inc()
+            logger.warning(f"Falha de rate limit em {endpoint}: {error}")
+        except Exception as e:
+            logger.error(f"Erro ao registrar falha de rate limit: {str(e)}")
 
 async def get_system_metrics():
     """

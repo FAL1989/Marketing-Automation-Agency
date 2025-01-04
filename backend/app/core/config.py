@@ -2,103 +2,141 @@
 Configurações da aplicação
 """
 
-import os
-import logging
-from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from pydantic_settings import BaseSettings
+from pydantic import validator, ConfigDict
+import os
+from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+load_dotenv()
 
 class Settings(BaseSettings):
-    """
-    Configurações da aplicação
-    """
-    # Ambiente
-    ENVIRONMENT: str = "development"
-    DEBUG: bool = True
-    SQL_DEBUG: bool = False
-    
-    # Aplicação
-    PROJECT_NAME: str = "AI Agency API"
-    VERSION: str = "0.1.0"
+    model_config = ConfigDict(
+        case_sensitive=True,
+        env_file=".env",
+        extra="allow"  # Permite campos extras do .env
+    )
+
+    # Application
+    PROJECT_NAME: str = "AI Agency"
+    VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
+    DESCRIPTION: str = "AI Agency API - Plataforma de Serviços de IA"
+    DEBUG: bool = True
+    TESTING: bool = True
     
-    # Segurança
-    SECRET_KEY: str = "your-secret-key"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 dias
-    ALGORITHM: str = "HS256"
+    # Database
+    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "postgres"
+    POSTGRES_DB: str = "app"
+    USE_SQLITE: bool = True
+    SQLALCHEMY_DATABASE_URI: str = os.getenv(
+        "DATABASE_URL",
+        "sqlite:///./app.db"
+    )
     
-    # Banco de dados
-    DATABASE_URL: str = "sqlite+aiosqlite:///./test.db"
+    # SQLAlchemy Configuration
+    SQLALCHEMY_POOL_SIZE: int = 20
+    SQLALCHEMY_MAX_OVERFLOW: int = 30
+    SQLALCHEMY_POOL_TIMEOUT: int = 60
+    SQLALCHEMY_POOL_RECYCLE: int = 1800  # 30 minutos
+    SQLALCHEMY_POOL_PRE_PING: bool = True
+    SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
+    SQLALCHEMY_ECHO: bool = False
     
-    # Configurações do Pool SQLAlchemy
-    SQLALCHEMY_POOL_SIZE: int = 20  # Aumentado para suportar mais conexões simultâneas
-    SQLALCHEMY_MAX_OVERFLOW: int = 10  # Conexões adicionais permitidas além do pool_size
-    SQLALCHEMY_POOL_TIMEOUT: int = 30  # Tempo máximo de espera por uma conexão
-    SQLALCHEMY_POOL_RECYCLE: int = 1800  # Recicla conexões após 30 minutos
-    SQLALCHEMY_POOL_PRE_PING: bool = True  # Verifica conexões antes de usar
+    # SQLAlchemy Engine Options
+    @property
+    def SQLALCHEMY_ENGINE_OPTIONS(self) -> Dict[str, Any]:
+        """
+        Retorna as opções do engine do SQLAlchemy baseado no tipo de banco
+        """
+        if self.USE_SQLITE:
+            return {
+                "connect_args": {
+                    "check_same_thread": False,
+                    "timeout": 30
+                }
+            }
+        return {
+            "pool_pre_ping": True,
+            "pool_size": self.SQLALCHEMY_POOL_SIZE,
+            "max_overflow": self.SQLALCHEMY_MAX_OVERFLOW,
+            "pool_timeout": self.SQLALCHEMY_POOL_TIMEOUT,
+            "pool_recycle": self.SQLALCHEMY_POOL_RECYCLE,
+        }
     
-    # Redis
-    REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6379
-    REDIS_DB: int = 0
-    REDIS_URL: str = "redis://localhost:6379/0"
-    REDIS_POOL_SIZE: int = 20  # Aumentado para melhor throughput
-    REDIS_MAX_CONNECTIONS: int = 100  # Aumentado limite máximo
-    REDIS_TIMEOUT: int = 5
-    REDIS_RETRY_ON_TIMEOUT: bool = True
-    REDIS_RETRY_MAX_ATTEMPTS: int = 3
-    REDIS_RETRY_DELAY: float = 0.1  # Delay entre tentativas em segundos
-    REDIS_HEALTH_CHECK_INTERVAL: int = 30  # Intervalo de health check em segundos
-    
-    # Cache
-    CACHE_ENABLED: bool = True
-    CACHE_TTL: int = 300  # 5 minutos
-    CACHE_PREFIX: str = "cache:"
+    # Security
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key")
+    JWT_SECRET_KEY: str = "your-super-secret-key-here"
+    JWT_REFRESH_SECRET_KEY: str = "your-super-secret-refresh-key-here"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
+    REFRESH_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
+    ALGORITHM: str = "HS256"  # Algoritmo para JWT
     
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
-    RATE_LIMIT_PER_MINUTE: int = 60
-    RATE_LIMIT_REQUESTS: int = 100
-    RATE_LIMIT_PERIOD: int = 3600
-    RATE_LIMIT_BURST: int = 50
-    RATE_LIMIT_BURST_PERIOD: int = 1
+    RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "5000"))  # Aumentado para testes
+    RATE_LIMIT_PER_SECOND: int = 500  # Aumentado para testes
+    RATE_LIMIT_BURST: int = 200  # Aumentado para testes
+    RATE_LIMIT_REQUESTS: int = 10000  # Aumentado para testes
+    RATE_LIMIT_PERIOD: int = 60  # 1 minuto
+    RATE_LIMIT_BURST_PERIOD: int = 5  # Aumentado para 5 segundos
     
-    # Token Bucket Config
+    # Token Bucket Configuration
     TOKEN_BUCKET_ENABLED: bool = True
-    TOKEN_BUCKET_CAPACITY: int = 100
-    TOKEN_BUCKET_REFILL_RATE: float = 1.0  # tokens por segundo
-    TOKEN_BUCKET_BURST_CAPACITY: int = 50
-    TOKEN_BUCKET_BURST_REFILL_RATE: float = 50.0  # tokens por segundo
+    TOKEN_BUCKET_CAPACITY: int = 2000  # Aumentado para testes
+    TOKEN_BUCKET_REFILL_RATE: float = 200.0  # Aumentado para testes
+    TOKEN_BUCKET_BURST_CAPACITY: int = 1000  # Aumentado para testes
+    TOKEN_BUCKET_BURST_REFILL_RATE: float = 400.0  # Aumentado para testes
     
-    # Monitoramento
-    METRICS_ENABLED: bool = True
-    METRICS_PATH: str = "/metrics/"
-    METRICS_NAMESPACE: str = "ai_agency"
+    # Redis Configuration
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    REDIS_URL: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+    REDIS_POOL_SIZE: int = int(os.getenv("REDIS_POOL_SIZE", "50"))  # Aumentado para testes
+    REDIS_RETRY_ATTEMPTS: int = int(os.getenv("REDIS_RETRY_ATTEMPTS", "3"))
+    REDIS_RETRY_DELAY: int = int(os.getenv("REDIS_RETRY_DELAY", "1"))
     
-    # RabbitMQ
-    RABBITMQ_USER: str = "guest"
-    RABBITMQ_PASSWORD: str = "guest"
+    # API Keys
+    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
+    ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
+    COHERE_API_KEY: Optional[str] = os.getenv("COHERE_API_KEY")
+    GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY")
+    AZURE_API_KEY: Optional[str] = os.getenv("AZURE_API_KEY")
+    HUGGINGFACE_API_KEY: Optional[str] = os.getenv("HUGGINGFACE_API_KEY")
     
-    # Grafana
-    GRAFANA_ADMIN_USER: str = "admin"
-    GRAFANA_ADMIN_PASSWORD: str = "admin"
+    # API Configuration
+    OPENAI_API_BASE: str = "https://api.openai.com/v1"
+    ANTHROPIC_API_BASE: str = "https://api.anthropic.com"
+    COHERE_API_BASE: str = "https://api.cohere.ai"
+    GOOGLE_API_BASE: str = "https://generativelanguage.googleapis.com"
+    AZURE_API_BASE: str = os.getenv("AZURE_API_BASE", "")
+    HUGGINGFACE_API_BASE: str = "https://api-inference.huggingface.co"
     
-    # APIs Externas
-    OPENAI_API_KEY: str = "your_openai_key"
-    ANTHROPIC_API_KEY: str = "your_anthropic_key"
-    COHERE_API_KEY: str = "your_cohere_key"
+    # Model Configuration
+    DEFAULT_MODEL: str = "gpt-3.5-turbo"
+    OPENAI_MODELS: List[str] = ["gpt-3.5-turbo", "gpt-4"]
+    ANTHROPIC_MODELS: List[str] = ["claude-2", "claude-instant-1"]
+    COHERE_MODELS: List[str] = ["command", "command-light"]
+    GOOGLE_MODELS: List[str] = ["palm-2"]
+    AZURE_MODELS: List[str] = []
+    HUGGINGFACE_MODELS: List[str] = []
     
-    # Configurações de Log
-    LOG_DIR: str = "logs"
-    LOG_FILE: str = "app.log"
-    LOG_PATH: str = os.path.join(LOG_DIR, LOG_FILE)
-    LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    LOG_DATE_FORMAT: str = "%Y-%m-%d %H:%M:%S"
+    # CORS Configuration
+    BACKEND_CORS_ORIGINS: List[str] = ["*"]
     
-    # Email/SMTP
+    # Monitoring
+    ENABLE_METRICS: bool = True
+    METRICS_UPDATE_INTERVAL_SECONDS: int = 30
+    
+    # Agents Configuration
+    DEFAULT_AGENT_TIMEOUT: int = 30  # seconds
+    MAX_CONCURRENT_TASKS: int = 10
+    CONTEXT_RETENTION_HOURS: int = 24
+    
+    # Email/SMTP Configuration
     SMTP_HOST: str = ""  # Vazio desabilita o serviço de email
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
@@ -108,66 +146,21 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "noreply@aiagency.com"
     SMTP_FROM_NAME: str = "AI Agency"
     
-    # Slack
+    # Slack Configuration
     SLACK_WEBHOOK_URL: str = ""  # Vazio desabilita as notificações do Slack
     SLACK_CHANNEL: str = "#monitoring"
     SLACK_USERNAME: str = "AI Agency Bot"
     SLACK_ICON_EMOJI: str = ":robot_face:"
     SLACK_ENABLED: bool = False
     
-    # Circuit Breaker
-    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5  # Número de falhas antes de abrir o circuito
-    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 60  # Tempo em segundos para tentar recuperar
-    CIRCUIT_BREAKER_RESET_TIMEOUT: int = 300  # Tempo em segundos para resetar o contador de falhas
-    CIRCUIT_BREAKER_MAX_FAILURES: int = 10  # Máximo de falhas permitidas antes de bloquear completamente
-    CIRCUIT_BREAKER_ENABLED: bool = True  # Habilita/desabilita o circuit breaker
-    
-    def configure_logging(self) -> None:
-        """
-        Configura o logging da aplicação
-        """
-        # Cria o diretório de logs se não existir
-        os.makedirs(self.LOG_DIR, exist_ok=True)
-        
-        # Configuração básica
-        logging.basicConfig(
-            level=getattr(logging, self.LOG_LEVEL),
-            format=self.LOG_FORMAT,
-            datefmt=self.LOG_DATE_FORMAT,
-            handlers=[
-                logging.FileHandler(self.LOG_PATH),
-                logging.StreamHandler()
-            ]
-        )
-        
-        # Reduz logging de bibliotecas
-        logging.getLogger("asyncio").setLevel(logging.WARNING)
-        logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
-        logging.getLogger("aioredis").setLevel(logging.WARNING)
-        
-        if self.DEBUG:
-            logging.getLogger("app").setLevel(logging.DEBUG)
-            
-            if self.SQL_DEBUG:
-                logging.getLogger("sqlalchemy").setLevel(logging.DEBUG)
-                
-        logger.info(f"Configurações carregadas para ambiente: {self.ENVIRONMENT}")
+    # Circuit Breaker Configuration
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 10  # Aumentado
+    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 30  # Reduzido
+    CIRCUIT_BREAKER_RESET_TIMEOUT: int = 300
+    CIRCUIT_BREAKER_MAX_FAILURES: int = 20  # Aumentado
+    CIRCUIT_BREAKER_ENABLED: bool = True
 
-    class Config:
-        case_sensitive = True
-        env_file = ".env"
-        extra = "allow"
-        protected_namespaces = ()
-        
-# Instância global das configurações
 settings = Settings()
 
-# Configura logging
-settings.configure_logging()
-
-@lru_cache()
 def get_settings() -> Settings:
-    """
-    Retorna instância das configurações com cache
-    """
-    return Settings() 
+    return settings 

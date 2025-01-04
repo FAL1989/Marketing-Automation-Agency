@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Box, Grid, Card, CardContent, Typography, CircularProgress } from '@mui/material';
 import { useAgents } from '../../hooks/useAgents';
 import { AgentStatus } from './AgentStatus';

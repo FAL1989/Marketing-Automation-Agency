@@ -1,134 +1,158 @@
 import pytest
+from fastapi.testclient import TestClient
 import asyncio
-from httpx import AsyncClient
-from app.core.redis import get_redis
+from redis.asyncio import Redis
 from app.core.monitoring import MonitoringService
-from app.services.rate_limiter import RateLimiter
+from app.core.redis import redis_manager, get_redis
+from app.core.config import settings
+from app.services.rate_limiter import TokenBucketRateLimiter
+import time
+from asyncio import TimeoutError
+import socket
+import logging
+from app.main import app
+
+client = TestClient(app)
+
+@pytest.fixture
+async def redis():
+    await redis_manager.initialize()
+    redis_client = await redis_manager.get_redis()
+    try:
+        yield redis_client
+    finally:
+        await redis_manager.close()
 
 @pytest.mark.asyncio
-async def test_mfa_rate_limit_basic(test_client: AsyncClient, redis, monitoring_service: MonitoringService):
-    """Testa o rate limiting básico do MFA"""
+async def test_mfa_rate_limit_basic(redis):
+    """Testa o rate limit básico do MFA"""
     # Configura rate limiter
-    rate_limiter = RateLimiter(
-        monitoring_service=monitoring_service,
-        max_requests=5,
-        window_size=10
-    )
+    monitoring = MonitoringService()
+    rate_limiter = TokenBucketRateLimiter(monitoring)
     
-    # Testa requisições dentro do limite
-    for i in range(5):
-        allowed, headers = await rate_limiter.check_rate_limit("test_user")
-        assert allowed, f"Requisição {i+1} deveria ser permitida"
-        assert int(headers["X-RateLimit-Remaining"]) == 4 - i
+    # Tenta verificação MFA múltiplas vezes
+    for _ in range(settings.RATE_LIMIT_PER_MINUTE + 1):
+        response = client.post(
+            "/auth/mfa/verify",
+            json={"code": "123456"}
+        )
     
-    # Testa bloqueio após exceder limite
-    allowed, headers = await rate_limiter.check_rate_limit("test_user")
-    assert not allowed, "Requisição deveria ser bloqueada após exceder limite"
-    assert int(headers["X-RateLimit-Remaining"]) == 0
+    # Última tentativa deve ser bloqueada
+    assert response.status_code == 429
+    result = response.json()
+    assert "detail" in result
+    assert "Too many requests" in result["detail"]
 
 @pytest.mark.asyncio
-async def test_mfa_rate_limit_window_reset(test_client: AsyncClient, redis, monitoring_service: MonitoringService):
-    """Testa o reset da janela de rate limiting"""
-    # Configura rate limiter com janela pequena para teste
-    rate_limiter = RateLimiter(
-        monitoring_service=monitoring_service,
-        max_requests=2,
-        window_size=1  # 1 segundo
+async def test_mfa_rate_limit_window_reset(redis):
+    """Testa o reset da janela de rate limit do MFA"""
+    monitoring = MonitoringService()
+    rate_limiter = TokenBucketRateLimiter(monitoring)
+    
+    # Excede o rate limit
+    for _ in range(settings.RATE_LIMIT_PER_MINUTE + 1):
+        response = client.post(
+            "/auth/mfa/verify",
+            json={"code": "123456"}
+        )
+    
+    # Espera a janela resetar
+    await asyncio.sleep(settings.RATE_LIMIT_WINDOW)
+    
+    # Tenta novamente
+    response = client.post(
+        "/auth/mfa/verify",
+        json={"code": "123456"}
     )
-    
-    # Usa todas as requisições disponíveis
-    for _ in range(2):
-        allowed, _ = await rate_limiter.check_rate_limit("test_user")
-        assert allowed
-    
-    # Verifica bloqueio
-    allowed, _ = await rate_limiter.check_rate_limit("test_user")
-    assert not allowed
-    
-    # Aguarda reset da janela
-    await asyncio.sleep(1.1)
-    
-    # Verifica que pode fazer requisições novamente
-    allowed, headers = await rate_limiter.check_rate_limit("test_user")
-    assert allowed
-    assert int(headers["X-RateLimit-Remaining"]) == 1
+    assert response.status_code == 200
 
 @pytest.mark.asyncio
-async def test_mfa_rate_limit_multiple_users(test_client: AsyncClient, redis, monitoring_service: MonitoringService):
-    """Testa rate limiting para múltiplos usuários"""
-    rate_limiter = RateLimiter(
-        monitoring_service=monitoring_service,
-        max_requests=3,
-        window_size=10
-    )
+async def test_mfa_rate_limit_multiple_users(redis):
+    """Testa o rate limit do MFA para múltiplos usuários"""
+    monitoring = MonitoringService()
+    rate_limiter = TokenBucketRateLimiter(monitoring)
     
-    # Testa limites independentes para diferentes usuários
-    for user in ["user1", "user2", "user3"]:
-        for i in range(3):
-            allowed, headers = await rate_limiter.check_rate_limit(user)
-            assert allowed, f"Requisição {i+1} para {user} deveria ser permitida"
-            assert int(headers["X-RateLimit-Remaining"]) == 2 - i
+    # Testa com diferentes usuários
+    users = ["user1@example.com", "user2@example.com"]
+    
+    for user in users:
+        # Deve permitir tentativas para cada usuário
+        for _ in range(settings.RATE_LIMIT_PER_MINUTE):
+            response = client.post(
+                "/auth/mfa/verify",
+                json={"code": "123456", "email": user}
+            )
+            assert response.status_code == 200
         
-        # Verifica bloqueio após exceder limite
-        allowed, _ = await rate_limiter.check_rate_limit(user)
-        assert not allowed, f"{user} deveria ser bloqueado após exceder limite"
+        # Próxima tentativa deve ser bloqueada
+        response = client.post(
+            "/auth/mfa/verify",
+            json={"code": "123456", "email": user}
+        )
+        assert response.status_code == 429
 
 @pytest.mark.asyncio
-async def test_mfa_rate_limit_burst(test_client: AsyncClient, redis, monitoring_service: MonitoringService):
-    """Testa comportamento de burst do rate limiting"""
-    rate_limiter = RateLimiter(
-        monitoring_service=monitoring_service,
-        max_requests=5,
-        window_size=10,
-        burst_size=7  # Permite burst maior que o rate normal
+async def test_mfa_rate_limit_burst(redis):
+    """Testa o comportamento de burst do rate limit do MFA"""
+    monitoring = MonitoringService()
+    rate_limiter = TokenBucketRateLimiter(monitoring)
+    
+    # Tenta burst de requisições
+    responses = []
+    for _ in range(settings.RATE_LIMIT_BURST):
+        response = client.post(
+            "/auth/mfa/verify",
+            json={"code": "123456"}
+        )
+        responses.append(response.status_code)
+    
+    # Verifica que o burst foi permitido
+    assert all(status == 200 for status in responses)
+    
+    # Próxima tentativa deve ser bloqueada
+    response = client.post(
+        "/auth/mfa/verify",
+        json={"code": "123456"}
     )
-    
-    # Testa burst inicial
-    for i in range(7):
-        allowed, headers = await rate_limiter.check_rate_limit("test_user")
-        assert allowed, f"Requisição de burst {i+1} deveria ser permitida"
-    
-    # Verifica bloqueio após exceder burst
-    allowed, _ = await rate_limiter.check_rate_limit("test_user")
-    assert not allowed, "Requisição deveria ser bloqueada após exceder burst"
+    assert response.status_code == 429
 
 @pytest.mark.asyncio
-async def test_mfa_rate_limit_cleanup(test_client: AsyncClient, redis, monitoring_service: MonitoringService):
-    """Testa limpeza de limites"""
-    rate_limiter = RateLimiter(
-        monitoring_service=monitoring_service,
-        max_requests=3,
-        window_size=10
+async def test_mfa_rate_limit_cleanup(redis):
+    """Testa a limpeza de dados do rate limit do MFA"""
+    monitoring = MonitoringService()
+    rate_limiter = TokenBucketRateLimiter(monitoring)
+    
+    # Excede o rate limit
+    for _ in range(settings.RATE_LIMIT_PER_MINUTE + 1):
+        response = client.post(
+            "/auth/mfa/verify",
+            json={"code": "123456"}
+        )
+    
+    # Espera o tempo de limpeza
+    await asyncio.sleep(settings.RATE_LIMIT_CLEANUP_INTERVAL)
+    
+    # Verifica se os dados foram limpos
+    response = client.post(
+        "/auth/mfa/verify",
+        json={"code": "123456"}
     )
-    
-    # Usa algumas requisições
-    for _ in range(2):
-        await rate_limiter.check_rate_limit("test_user")
-    
-    # Limpa limites
-    await rate_limiter.clear_limits("test_user")
-    
-    # Verifica que o contador foi resetado
-    allowed, headers = await rate_limiter.check_rate_limit("test_user")
-    assert allowed
-    assert int(headers["X-RateLimit-Remaining"]) == 2
+    assert response.status_code == 200
 
 @pytest.mark.asyncio
-async def test_mfa_rate_limit_metrics(test_client: AsyncClient, redis, monitoring_service: MonitoringService):
-    """Testa métricas do rate limiting"""
-    rate_limiter = RateLimiter(
-        monitoring_service=monitoring_service,
-        max_requests=3,
-        window_size=10
-    )
+async def test_mfa_rate_limit_metrics(redis):
+    """Testa as métricas do rate limit do MFA"""
+    monitoring = MonitoringService()
+    rate_limiter = TokenBucketRateLimiter(monitoring)
     
-    # Executa algumas requisições
-    for _ in range(4):
-        await rate_limiter.check_rate_limit("test_user")
+    # Gera algumas tentativas
+    for _ in range(settings.RATE_LIMIT_PER_MINUTE + 1):
+        response = client.post(
+            "/auth/mfa/verify",
+            json={"code": "123456"}
+        )
     
-    # Verifica informações dos limites
-    limits = await rate_limiter.get_limits("test_user")
-    assert limits["limit"] == 3
-    assert limits["remaining"] == 0
-    assert "reset" in limits
-    assert limits["window"] == 10 
+    # Verifica métricas
+    metrics = await monitoring.get_metrics()
+    assert metrics["rate_limits"]["mfa_attempts"] > 0
+    assert metrics["rate_limits"]["mfa_blocks"] > 0 

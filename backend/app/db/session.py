@@ -5,6 +5,7 @@ Configuração da sessão do banco de dados
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import QueuePool
 import logging
 from pathlib import Path
 from sqlalchemy.pool import AsyncAdaptedQueuePool
@@ -25,23 +26,19 @@ logger = logging.getLogger(__name__)
 db_path = Path("./data")
 db_path.mkdir(exist_ok=True)
 
-# Cria o engine do SQLAlchemy com SQLite e configurações otimizadas
+# Cria engine assíncrono
 engine = create_async_engine(
-    "sqlite+aiosqlite:///./data/app.db",
-    poolclass=AsyncAdaptedQueuePool,
+    settings.SQLALCHEMY_DATABASE_URI,
+    poolclass=QueuePool,
     pool_size=settings.SQLALCHEMY_POOL_SIZE,
     max_overflow=settings.SQLALCHEMY_MAX_OVERFLOW,
     pool_timeout=settings.SQLALCHEMY_POOL_TIMEOUT,
     pool_recycle=settings.SQLALCHEMY_POOL_RECYCLE,
     pool_pre_ping=settings.SQLALCHEMY_POOL_PRE_PING,
-    connect_args={
-        "check_same_thread": False,
-        "timeout": 30
-    },
-    echo=settings.SQL_DEBUG
+    echo=settings.SQLALCHEMY_ECHO
 )
 
-# Cria a fábrica de sessões com configurações otimizadas
+# Cria fábrica de sessões assíncronas
 AsyncSessionLocal = sessionmaker(
     engine,
     class_=AsyncSession,
@@ -103,5 +100,23 @@ async def verify_database():
             logger.error(f"Erro ao verificar conexão com banco de dados: {e}")
             record_connection_error('health_check', type(e).__name__)
             return False
+
+# Função para criar todas as tabelas
+async def create_tables():
+    """
+    Cria todas as tabelas no banco de dados
+    """
+    from app.db.base_all import Base
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+# Função para dropar todas as tabelas
+async def drop_tables():
+    """
+    Remove todas as tabelas do banco de dados
+    """
+    from app.db.base_all import Base
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 __all__ = ["AsyncSessionLocal", "engine", "get_db", "verify_database"] 

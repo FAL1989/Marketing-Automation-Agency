@@ -1,8 +1,12 @@
-from .base_class import Base
+"""
+Importa todos os modelos SQLAlchemy para que o Alembic possa detectá-los
+"""
+
+from .base import Base
 from ..models.user import User
-from ..models.audit import AuditLog
 from ..models.content import Content
 from ..models.template import Template
-from ..models.monitoring import MonitoringMetric
+from ..models.generation import Generation
+from ..models.audit import AuditLog
 
-# Ensure all models are imported 
+__all__ = ["Base", "User", "Content", "Template", "Generation", "AuditLog"] 

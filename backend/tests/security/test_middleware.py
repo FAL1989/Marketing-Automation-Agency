@@ -65,18 +65,29 @@ def test_auth_middleware(test_client, test_user):
 
 def test_circuit_breaker_middleware(test_client):
     """Testa o middleware de circuit breaker"""
-    # Força falhas para ativar o circuit breaker
+    # Configura o endpoint para teste
+    endpoint = f"{settings.API_V1_STR}/auth/login"
+    data = {"username": "wrong@example.com", "password": "wrong_password"}
+    
+    # Fase 1: Força falhas para ativar o circuit breaker
     responses = []
     for _ in range(settings.CIRCUIT_BREAKER_FAILURE_THRESHOLD + 1):
         responses.append(
-            test_client.post(
-                f"{settings.API_V1_STR}/auth/login",
-                data={"username": "invalid", "password": "invalid"}
-            )
+            test_client.post(endpoint, data=data)
         )
     
     # Verifica se o circuit breaker foi ativado
-    assert any(r.status_code == 503 for r in responses)
+    assert any(r.status_code == 503 for r in responses), "Circuit breaker não foi ativado"
+    
+    # Fase 2: Verifica se o circuit breaker mantém o estado
+    response = test_client.post(endpoint, data=data)
+    assert response.status_code == 503, "Circuit breaker não manteve o estado"
+    assert "retry_after" in response.json(), "Header Retry-After não presente"
+    
+    # Fase 3: Verifica informações do circuit breaker
+    status = response.json()["circuit_breaker_status"]
+    assert status["state"] == "open", "Estado do circuit breaker incorreto"
+    assert status["failure_count"] >= settings.CIRCUIT_BREAKER_FAILURE_THRESHOLD, "Contador de falhas incorreto"
 
 def test_middleware_order(test_client, test_user):
     """Testa a ordem de execução dos middlewares"""

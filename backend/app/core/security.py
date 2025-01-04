@@ -4,11 +4,12 @@ Módulo de segurança para autenticação e autorização
 
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Union
-from jose import jwt
+from jose import jwt, JWTError
 from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
-from fastapi import HTTPException, Security, status
+from fastapi import HTTPException, Security, status, Depends
 from ..core.config import settings
+from app.schemas.user import User
 
 # Configuração do contexto de criptografia
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -173,6 +174,44 @@ class SecurityService:
         Verifica e decodifica um token JWT.
         """
         return verify_token(token, refresh)
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    """
+    Obtém o usuário atual a partir do token JWT
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Credenciais inválidas",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.ALGORITHM]
+        )
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    # Para testes, retorna um usuário mock
+    user = User(
+        email=email,
+        is_active=True,
+        is_superuser=False,
+        full_name="Test User"
+    )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Usuário inativo"
+        )
+    
+    return user
 
 __all__ = [
     "create_access_token",

@@ -112,6 +112,23 @@ class CircuitBreaker:
     def failure_count(self) -> int:
         return self._failure_count
     
+    def allow_request(self) -> bool:
+        """
+        Verifica se uma requisição pode ser permitida baseado no estado atual
+        """
+        if self._state == CircuitState.CLOSED:
+            return True
+        elif self._state == CircuitState.OPEN:
+            # Verifica se já passou o tempo de reset
+            if self._last_failure_time is None:
+                return True
+            if time.time() - self._last_failure_time >= self.reset_timeout:
+                return True
+            return False
+        else:  # HALF_OPEN
+            # Permite algumas requisições para testar o serviço
+            return True
+    
     async def _transition_state(self, new_state: CircuitState) -> None:
         """
         Realiza a transição de estado com notificações

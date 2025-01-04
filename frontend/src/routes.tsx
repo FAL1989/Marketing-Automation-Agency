@@ -9,6 +9,7 @@ import { ContentGeneratorPage } from './pages/ContentGeneratorPage';
 import { GenerationHistoryPage } from './pages/GenerationHistoryPage';
 import { PromptConfigPage } from './pages/PromptConfigPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { AgentDashboardPage } from './pages/AgentDashboardPage';
 import { Login } from './pages/Login';
 import { useAuth } from './hooks/useAuth';
 
@@ -63,6 +64,10 @@ export const router = createBrowserRouter([
       {
         path: 'analytics',
         element: <AnalyticsPage />
+      },
+      {
+        path: 'agents',
+        element: <AgentDashboardPage />
       }
     ]
   }

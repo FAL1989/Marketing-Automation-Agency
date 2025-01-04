@@ -5,33 +5,30 @@ from typing import AsyncGenerator, Dict
 from httpx import AsyncClient
 from fastapi import FastAPI
 from ..conftest import app, client
-from app.core.redis import get_redis, init_redis_pool, close_redis_connection
+from app.core.redis import get_redis, redis_manager
 from app.core.config import settings
 from app.core.monitoring import MonitoringService
 
 logger = logging.getLogger(__name__)
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Cria um event loop para os testes"""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+pytestmark = pytest.mark.asyncio(scope="session")
 
 @pytest.fixture(autouse=True)
 async def setup_redis():
     """Configura e limpa o Redis antes e depois dos testes"""
     try:
         # Inicializa conexão com Redis
-        redis = await init_redis_pool()
-        await redis.flushdb()  # Limpa o banco
+        await redis_manager.initialize()
+        redis = await redis_manager.get_redis()
+        # Não precisa de await para o cliente síncrono
+        redis.flushdb()  # Limpa o banco
         logger.info("Redis configurado para testes")
         
         yield
         
         # Limpa o Redis após os testes
-        await redis.flushdb()
-        await close_redis_connection()
+        redis.flushdb()
+        await redis_manager.close()
         logger.info("Redis limpo após testes")
         
     except Exception as e:
@@ -42,8 +39,8 @@ async def setup_redis():
 async def redis():
     """Fornece uma conexão Redis para os testes"""
     try:
-        redis = await get_redis()
-        await redis.flushdb()  # Limpa o banco antes de cada teste
+        redis = await redis_manager.get_redis()
+        redis.flushdb()  # Limpa o banco antes de cada teste
         return redis
     except Exception as e:
         logger.error(f"Erro ao obter conexão Redis: {str(e)}")
