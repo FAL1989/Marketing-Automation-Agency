@@ -1,185 +1,206 @@
 import pytest
-from fastapi.testclient import TestClient
-import asyncio
-from redis.asyncio import Redis
-from app.core.monitoring import MonitoringService
-from app.core.redis import redis_manager, get_redis
-from app.core.config import settings
+import pytest_asyncio
+from httpx import AsyncClient
+from datetime import timedelta, timezone
+from typing import Dict, Any, AsyncGenerator
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_access_token
-import time
-from asyncio import TimeoutError
-import socket
-import logging
+from app.core.config import settings
 from app.main import app
-from datetime import datetime
+from app.models.user import User
 
-client = TestClient(app)
+pytestmark = pytest.mark.asyncio
 
-@pytest.fixture
-async def redis():
-    await redis_manager.initialize()
-    redis_client = await redis_manager.get_redis()
-    try:
-        yield redis_client
-    finally:
-        await redis_manager.close()
-
-@pytest.mark.asyncio
-async def test_create_user(redis):
-    """Testa a criação de usuário"""
+@pytest_asyncio.fixture
+async def test_user(test_client: AsyncClient, db_session: AsyncSession) -> Dict[str, Any]:
+    """Create a test user for authentication."""
     user_data = {
         "email": "test@example.com",
         "password": "test123",
-        "full_name": "Test User"
+        "full_name": "Test User",
+        "is_active": True,
+        "is_superuser": False
     }
     
-    response = client.post("/users", json=user_data)
+    response = await test_client.post(f"{settings.API_V1_STR}/users", json=user_data)
     assert response.status_code == 201
     result = response.json()
+    await db_session.commit()
+    return result
+
+@pytest_asyncio.fixture
+async def auth_headers(test_user: Dict[str, Any]) -> Dict[str, str]:
+    """Create authentication headers for testing."""
+    access_token = create_access_token(
+        subject=test_user["email"],
+        expires_delta=timedelta(minutes=30)
+    )
+    return {"Authorization": f"Bearer {access_token}"}
+
+@pytest_asyncio.fixture
+async def test_client() -> AsyncGenerator[AsyncClient, None]:
+    """Create an async test client."""
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        yield client
+
+async def test_create_user(test_client: AsyncClient, db_session: AsyncSession) -> None:
+    """Test user creation with all required fields."""
+    user_data = {
+        "email": "test_create@example.com",
+        "password": "testpassword123",  # Longer password for security
+        "full_name": "Test Create User",
+        "is_active": True,
+        "is_superuser": False
+    }
+    
+    # First, verify we can create a user with all required fields
+    response = await test_client.post(f"{settings.API_V1_STR}/users", json=user_data)
+    print(f"Response status: {response.status_code}")
+    print(f"Response content: {response.content}")
+    assert response.status_code == 201
+    result = response.json()
+    
+    # Verify all fields are present and match
     assert "id" in result
     assert result["email"] == user_data["email"]
     assert result["full_name"] == user_data["full_name"]
-
-@pytest.mark.asyncio
-async def test_get_user(redis):
-    """Testa a obtenção de usuário"""
-    # Primeiro cria um usuário
-    user_data = {
-        "email": "test@example.com",
-        "password": "test123",
-        "full_name": "Test User"
-    }
-    create_response = client.post("/users", json=user_data)
-    user_id = create_response.json()["id"]
+    assert result["is_active"] == user_data["is_active"]
+    assert result["is_superuser"] == user_data["is_superuser"]
     
-    # Obtém o usuário criado
-    response = client.get(f"/users/{user_id}")
+    # Verify we can't create a duplicate user
+    response = await test_client.post(f"{settings.API_V1_STR}/users", json=user_data)
+    assert response.status_code == 400
+    response_json = response.json()
+    assert "Email already registered" in response_json["detail"]
+    
+    await db_session.commit()
+
+async def test_get_user(test_client: AsyncClient, db_session: AsyncSession, auth_headers: Dict[str, str], test_user: Dict[str, Any]) -> None:
+    """Test user retrieval."""
+    # Get the created user
+    response = await test_client.get(
+        f"{settings.API_V1_STR}/users/{test_user['id']}", 
+        headers=auth_headers
+    )
     assert response.status_code == 200
     result = response.json()
-    assert result["id"] == user_id
-    assert result["email"] == user_data["email"]
-    assert result["full_name"] == user_data["full_name"]
+    assert result["id"] == test_user["id"]
+    assert result["email"] == test_user["email"]
+    assert result["full_name"] == test_user["full_name"]
 
-@pytest.mark.asyncio
-async def test_update_user(redis):
-    """Testa a atualização de usuário"""
-    # Primeiro cria um usuário
-    user_data = {
-        "email": "test@example.com",
-        "password": "test123",
-        "full_name": "Test User"
-    }
-    create_response = client.post("/users", json=user_data)
-    user_id = create_response.json()["id"]
-    
-    # Atualiza o usuário
+async def test_update_user(test_client: AsyncClient, db_session: AsyncSession, auth_headers: Dict[str, str], test_user: Dict[str, Any]) -> None:
+    """Test user update."""
+    # Update the user
     update_data = {
         "full_name": "Updated Test User"
     }
-    response = client.put(f"/users/{user_id}", json=update_data)
+    response = await test_client.put(
+        f"{settings.API_V1_STR}/users/{test_user['id']}", 
+        json=update_data, 
+        headers=auth_headers
+    )
     assert response.status_code == 200
     result = response.json()
-    assert result["id"] == user_id
+    assert result["id"] == test_user["id"]
     assert result["full_name"] == update_data["full_name"]
 
-@pytest.mark.asyncio
-async def test_delete_user(redis):
-    """Testa a deleção de usuário"""
-    # Primeiro cria um usuário
-    user_data = {
-        "email": "test@example.com",
-        "password": "test123",
-        "full_name": "Test User"
-    }
-    create_response = client.post("/users", json=user_data)
-    user_id = create_response.json()["id"]
-    
-    # Deleta o usuário
-    response = client.delete(f"/users/{user_id}")
+async def test_delete_user(test_client: AsyncClient, db_session: AsyncSession, auth_headers: Dict[str, str], test_user: Dict[str, Any]) -> None:
+    """Test user deletion."""
+    # Delete the user
+    response = await test_client.delete(
+        f"{settings.API_V1_STR}/users/{test_user['id']}", 
+        headers=auth_headers
+    )
     assert response.status_code == 204
     
-    # Verifica se o usuário foi deletado
-    get_response = client.get(f"/users/{user_id}")
+    # Verify the user was deleted
+    get_response = await test_client.get(
+        f"{settings.API_V1_STR}/users/{test_user['id']}", 
+        headers=auth_headers
+    )
     assert get_response.status_code == 404
 
-@pytest.mark.asyncio
-async def test_list_users(redis):
-    """Testa a listagem de usuários"""
-    # Cria alguns usuários
+async def test_list_users(test_client: AsyncClient, db_session: AsyncSession, auth_headers: Dict[str, str], test_user: Dict[str, Any]) -> None:
+    """Test user listing."""
+    # Create additional users
     users = [
         {
-            "email": f"test{i}@example.com",
+            "email": f"test_list{i}@example.com",
             "password": "test123",
-            "full_name": f"Test User {i}"
+            "full_name": f"Test User {i}",
+            "is_active": True,
+            "is_superuser": False
         }
         for i in range(3)
     ]
     
     for user_data in users:
-        client.post("/users", json=user_data)
+        response = await test_client.post(f"{settings.API_V1_STR}/users", json=user_data)
+        assert response.status_code == 201
+    await db_session.commit()
     
-    # Lista os usuários
-    response = client.get("/users")
+    # List users
+    response = await test_client.get(
+        f"{settings.API_V1_STR}/users", 
+        headers=auth_headers
+    )
     assert response.status_code == 200
     result = response.json()
-    assert len(result) >= 3
+    assert len(result) >= 4  # test_user + 3 additional users
     assert all(user["email"] in [u["email"] for u in result] for user in users)
 
-@pytest.mark.asyncio
-async def test_user_me(redis):
-    """Testa o endpoint /me"""
-    # Primeiro cria um usuário
-    user_data = {
-        "email": "test@example.com",
-        "password": "test123",
-        "full_name": "Test User"
-    }
-    client.post("/users", json=user_data)
-    
-    # Faz login
+async def test_user_me(test_client: AsyncClient, db_session: AsyncSession, test_user: Dict[str, Any]) -> None:
+    """Test user me endpoint."""
+    # Login
     login_data = {
-        "username": user_data["email"],
-        "password": user_data["password"]
+        "username": test_user["email"],
+        "password": "test123"
     }
-    login_response = client.post("/auth/login", json=login_data)
+    login_response = await test_client.post(f"{settings.API_V1_STR}/auth/login", data=login_data)
+    assert login_response.status_code == 200
     token = login_response.json()["access_token"]
     
-    # Obtém dados do usuário logado
-    response = client.get(
-        "/users/me",
+    # Get logged in user data
+    response = await test_client.get(
+        f"{settings.API_V1_STR}/users/me",
         headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 200
     result = response.json()
-    assert result["email"] == user_data["email"]
-    assert result["full_name"] == user_data["full_name"]
+    assert result["email"] == test_user["email"]
+    assert result["full_name"] == test_user["full_name"]
 
-@pytest.mark.asyncio
-async def test_user_validation(redis):
-    """Testa a validação de dados do usuário"""
-    # Testa email inválido
-    invalid_email = {
+async def test_user_validation(test_client: AsyncClient) -> None:
+    """Test user data validation."""
+    # Test invalid email
+    invalid_email_data = {
         "email": "invalid-email",
         "password": "test123",
-        "full_name": "Test User"
+        "full_name": "Test User",
+        "is_active": True,
+        "is_superuser": False
     }
-    response = client.post("/users", json=invalid_email)
+    response = await test_client.post(f"{settings.API_V1_STR}/users", json=invalid_email_data)
     assert response.status_code == 422
     
-    # Testa senha muito curta
-    short_password = {
+    # Test short password
+    short_password_data = {
         "email": "test@example.com",
         "password": "123",
-        "full_name": "Test User"
+        "full_name": "Test User",
+        "is_active": True,
+        "is_superuser": False
     }
-    response = client.post("/users", json=short_password)
+    response = await test_client.post(f"{settings.API_V1_STR}/users", json=short_password_data)
     assert response.status_code == 422
     
-    # Testa nome vazio
-    empty_name = {
+    # Test empty name
+    empty_name_data = {
         "email": "test@example.com",
         "password": "test123",
-        "full_name": ""
+        "full_name": "",
+        "is_active": True,
+        "is_superuser": False
     }
-    response = client.post("/users", json=empty_name)
+    response = await test_client.post(f"{settings.API_V1_STR}/users", json=empty_name_data)
     assert response.status_code == 422 

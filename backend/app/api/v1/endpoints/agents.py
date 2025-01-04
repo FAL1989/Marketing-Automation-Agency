@@ -531,27 +531,39 @@ async def coordinate_task(request: TaskRequest):
             detail=f"Failed to coordinate task: {str(e)}"
         )
 
-@router.get("/tasks/{task_id}", response_model=TaskResponse)
-async def get_task_status(task_id: str):
-    """Get the status of a task"""
+@router.get("/tasks/{task_id}/coordination", response_model=CoordinationResponse)
+async def get_task_coordination_status(task_id: str) -> CoordinationResponse:
+    """Get status of a coordinated task"""
     try:
         logger.info("Getting Redis client")
         redis_client = await get_redis()
         
-        logger.info(f"Getting task {task_id}")
-        task_data = redis_client.get(f"task:{task_id}")
-        if not task_data:
+        logger.info(f"Getting coordination data for task {task_id}")
+        coordination_data = redis_client.get(f"task:{task_id}:coordination")
+        if not coordination_data:
             raise HTTPException(
                 status_code=404,
-                detail=f"Task {task_id} not found"
+                detail=f"No coordination data found for task {task_id}"
             )
         
-        task = json.loads(task_data)
+        coordination_data = json.loads(coordination_data)
+        
+        # Simulate task progress
+        coordination_data["status"] = "in_progress"
+        for agent in coordination_data["assignments"]:
+            coordination_data["assignments"][agent]["status"] = "in_progress"
+        
+        redis_client.set(
+            f"task:{task_id}:coordination",
+            json.dumps(coordination_data)
+        )
+        
         logger.info("Task status retrieved successfully")
-        return TaskResponse(
-            status=task["status"],
-            results=task.get("results", []),
-            message=f"Task {task_id} status retrieved"
+        return CoordinationResponse(
+            task_id=task_id,
+            status=coordination_data["status"],
+            assignments=coordination_data["assignments"],
+            message="Task status retrieved successfully"
         )
     except HTTPException:
         raise
@@ -877,47 +889,4 @@ async def coordinate_task(request: CoordinationRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to coordinate task: {str(e)}"
-        )
-
-@router.get("/tasks/{task_id}/status", response_model=CoordinationResponse)
-async def get_task_status(task_id: str):
-    """Get status of a coordinated task"""
-    try:
-        logger.info("Getting Redis client")
-        redis_client = await get_redis()
-        
-        logger.info(f"Getting coordination data for task {task_id}")
-        coordination_data = redis_client.get(f"task:{task_id}:coordination")
-        if not coordination_data:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No coordination data found for task {task_id}"
-            )
-        
-        coordination_data = json.loads(coordination_data)
-        
-        # Simulate task progress
-        coordination_data["status"] = "in_progress"
-        for agent in coordination_data["assignments"]:
-            coordination_data["assignments"][agent]["status"] = "in_progress"
-        
-        redis_client.set(
-            f"task:{task_id}:coordination",
-            json.dumps(coordination_data)
-        )
-        
-        logger.info("Task status retrieved successfully")
-        return CoordinationResponse(
-            task_id=task_id,
-            status=coordination_data["status"],
-            assignments=coordination_data["assignments"],
-            message="Task status retrieved successfully"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get task status: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get task status: {str(e)}"
         ) 

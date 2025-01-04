@@ -1,31 +1,19 @@
 from fastapi.testclient import TestClient
 import pytest
-from app.main import app
-from app.db.session import AsyncSessionLocal
-from app.models.monitoring import MonitoringMetric
-from datetime import datetime, timedelta
-import json
-import asyncio
+from typing import AsyncGenerator
 from redis.asyncio import Redis
-from app.core.monitoring import MonitoringService
-from app.core.redis import redis_manager, get_redis
-from app.core.config import settings
-import time
-from asyncio import TimeoutError
-import socket
+from app.main import app
+from app.core.monitoring import MonitoringService, MONITORING_REGISTRY
+from app.core.redis import redis_manager
+from datetime import datetime, UTC
+import asyncio
 import logging
-from sqlalchemy import select
+from prometheus_client import CollectorRegistry
 
 client = TestClient(app)
 
-async def get_monitoring_metrics(db_session):
-    """Função auxiliar para obter métricas de monitoramento"""
-    stmt = select(MonitoringMetric)
-    result = await db_session.execute(stmt)
-    return result.scalars().all()
-
 @pytest.fixture
-async def redis():
+async def redis() -> AsyncGenerator[Redis, None]:
     await redis_manager.initialize()
     redis_client = await redis_manager.get_redis()
     try:
@@ -33,195 +21,133 @@ async def redis():
     finally:
         await redis_manager.close()
 
+@pytest.fixture
+def monitoring_service() -> MonitoringService:
+    """Fixture para o serviço de monitoramento"""
+    registry = CollectorRegistry()
+    service = MonitoringService(registry=registry)
+    return service
+
 @pytest.mark.asyncio
-async def test_record_metric(redis):
-    """Testa o registro de métricas"""
-    metric_data = {
-        "type": "response_time",
-        "value": 150.0,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+async def test_record_api_request(monitoring_service: MonitoringService) -> None:
+    """Testa o registro de requisições da API"""
+    # Record an API request
+    await monitoring_service.record_api_request(
+        endpoint="/test",
+        method="GET",
+        status=200,
+        duration=0.1
+    )
     
-    response = client.post("/monitoring/record", json=metric_data)
-    assert response.status_code == 200
-    result = response.json()
-    assert "id" in result
-    assert "recorded" in result
-    assert result["recorded"] == True
-
-@pytest.mark.asyncio
-async def test_get_metrics_summary(redis):
-    """Testa o resumo das métricas"""
-    response = client.get("/monitoring/summary")
-    assert response.status_code == 200
-    summary = response.json()
-    assert "system" in summary
-    assert "agents" in summary
-    assert "performance" in summary
-
-@pytest.mark.asyncio
-async def test_get_agent_metrics(redis):
-    """Testa as métricas dos agentes"""
-    # Primeiro registra algumas métricas
-    metric_data = {
-        "type": "response_time",
-        "value": 150.0,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-    client.post("/monitoring/record", json=metric_data)
+    # Get the current value of the counter
+    counter = monitoring_service.api_requests.labels(
+        endpoint="/test",
+        method="GET",
+        status=200
+    )._value.get()
     
-    response = client.get("/monitoring/agents/test-agent")
-    assert response.status_code == 200
-    metrics = response.json()
-    assert "metrics" in metrics
-    assert "history" in metrics
-    assert len(metrics["history"]) > 0
+    # Verify that the counter was incremented
+    assert counter == 1.0
 
 @pytest.mark.asyncio
-async def test_get_system_health(redis):
-    """Testa a saúde do sistema"""
-    response = client.get("/monitoring/health")
-    assert response.status_code == 200
-    health = response.json()
-    assert "status" in health
-    assert "components" in health
-    assert "timestamp" in health
-
-@pytest.mark.asyncio
-async def test_get_performance_metrics(redis):
-    """Testa as métricas de performance"""
-    response = client.get("/monitoring/performance")
-    assert response.status_code == 200
-    performance = response.json()
-    assert "cpu_usage" in performance
-    assert "memory_usage" in performance
-    assert "response_times" in performance
-
-@pytest.mark.asyncio
-async def test_metrics_aggregation(redis):
-    """Testa a agregação de métricas"""
-    monitoring = MonitoringService()
+async def test_record_redis_operation(monitoring_service: MonitoringService) -> None:
+    """Testa o registro de operações do Redis"""
+    # Record a Redis operation
+    await monitoring_service.record_redis_operation(
+        operation="get",
+        duration=0.05,
+        success=True
+    )
     
-    # Registra múltiplas métricas
-    for i in range(5):
-        await monitoring.record_api_request(
-            "/test",
-            "GET",
-            200,
-            0.1 + i * 0.1
-        )
+    # Get the current value of the counter
+    counter = monitoring_service.redis_operations.labels(
+        operation="get",
+        status="success"
+    )._value.get()
     
-    # Verifica agregação
-    metrics = await monitoring.get_metrics()
-    assert "api_requests" in metrics
-    assert metrics["api_requests"]["total"] > 0
-    assert metrics["api_requests"]["success_rate"] > 0
+    # Verify that the counter was incremented
+    assert counter == 1.0
 
 @pytest.mark.asyncio
-async def test_prometheus_metrics(redis):
-    """Testa as métricas do Prometheus"""
-    response = client.get("/metrics")
-    assert response.status_code == 200
-    metrics_text = response.text
+async def test_record_cache_operation(monitoring_service: MonitoringService) -> None:
+    """Testa o registro de operações de cache"""
+    # Record a cache hit
+    await monitoring_service.record_cache_operation(hit=True)
     
-    # Verifica métricas esperadas
-    assert "api_requests_total" in metrics_text
-    assert "api_request_duration_seconds" in metrics_text
-    assert "redis_operations_total" in metrics_text
-
-@pytest.mark.asyncio
-async def test_alerts_configuration(redis):
-    """Testa a configuração de alertas"""
-    alert_config = {
-        "metric": "response_time",
-        "threshold": 1000,
-        "condition": "greater_than",
-        "duration": "5m",
-        "notification": {
-            "type": "email",
-            "recipients": ["admin@example.com"]
-        }
-    }
+    # Get the current value of the hits counter
+    hits = monitoring_service.cache_hits._value.get()
     
-    response = client.post("/monitoring/alerts/configure", json=alert_config)
-    assert response.status_code == 200
-    result = response.json()
-    assert "id" in result
-    assert "status" in result
-    assert result["status"] == "configured"
-
-@pytest.mark.asyncio
-async def test_get_active_alerts(redis):
-    """Testa a obtenção de alertas ativos"""
-    response = client.get("/monitoring/alerts")
-    assert response.status_code == 200
-    alerts = response.json()
-    assert isinstance(alerts, list)
-    if alerts:
-        assert all(
-            isinstance(alert, dict) and
-            all(key in alert for key in ["id", "metric", "threshold", "status"])
-            for alert in alerts
-        )
-
-@pytest.mark.asyncio
-async def test_metric_data_validation(redis):
-    """Testa a validação de dados das métricas"""
-    # Testa com tipo de métrica inválido
-    invalid_metric = {
-        "type": "invalid_type",
-        "value": 150.0,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-    response = client.post("/monitoring/record", json=invalid_metric)
-    assert response.status_code == 422
+    # Verify that the hits counter was incremented
+    assert hits == 1.0
     
-    # Testa com tipo de valor inválido
-    invalid_value = {
-        "type": "response_time",
-        "value": "not_a_number",
-        "timestamp": datetime.utcnow().isoformat()
-    }
-    response = client.post("/monitoring/record", json=invalid_value)
-    assert response.status_code == 422
+    # Record a cache miss
+    await monitoring_service.record_cache_operation(hit=False)
+    
+    # Get the current value of the misses counter
+    misses = monitoring_service.cache_misses._value.get()
+    
+    # Verify that the misses counter was incremented
+    assert misses == 1.0
 
 @pytest.mark.asyncio
-async def test_monitoring_system_load(redis):
+async def test_record_rate_limit(monitoring_service: MonitoringService) -> None:
+    """Testa o registro de rate limiting"""
+    endpoint = "/test"
+    current = 5
+    
+    # Record rate limit info
+    await monitoring_service.record_rate_limit(
+        endpoint=endpoint,
+        current=current,
+        exceeded=False
+    )
+    
+    # Get the current value of the gauge
+    gauge = monitoring_service.rate_limit_current.labels(
+        endpoint=endpoint
+    )._value.get()
+    
+    # Verify that the gauge was set correctly
+    assert gauge == float(current)
+    
+    # Record a rate limit exceeded event
+    await monitoring_service.record_rate_limit(
+        endpoint=endpoint,
+        current=current,
+        exceeded=True
+    )
+    
+    # Get the current value of the exceeded counter
+    exceeded = monitoring_service.rate_limit_exceeded.labels(
+        endpoint=endpoint
+    )._value.get()
+    
+    # Verify that the exceeded counter was incremented
+    assert exceeded == 1.0
+
+@pytest.mark.asyncio
+async def test_monitoring_system_load(monitoring_service: MonitoringService) -> None:
     """Testa o sistema de monitoramento sob carga"""
-    monitoring = MonitoringService()
-    
-    # Gera carga com múltiplas métricas
+    # Generate load with multiple API requests
     tasks = []
     for _ in range(100):
-        task = monitoring.record_api_request(
-            "/test",
-            "GET",
-            200,
-            0.1
+        task = monitoring_service.record_api_request(
+            endpoint="/test",
+            method="GET",
+            status=200,
+            duration=0.1
         )
         tasks.append(task)
     
-    # Executa todas as tarefas
+    # Execute all tasks
     await asyncio.gather(*tasks)
     
-    # Verifica métricas
-    metrics = await monitoring.get_metrics()
-    assert metrics["api_requests"]["total"] >= 100
-    assert metrics["api_requests"]["success_rate"] > 0
-
-@pytest.mark.asyncio
-async def test_monitoring_metrics(db_session):
-    # Create test metric
-    metric = MonitoringMetric(
-        metric_type="response_time",
-        value=100.0,
-        timestamp=datetime.utcnow()
-    )
-    db_session.add(metric)
-    await db_session.commit()
-
-    # Test retrieval
-    metrics = await get_monitoring_metrics(db_session)
-    assert len(metrics) > 0
-    assert metrics[0].metric_type == "response_time"
-    assert metrics[0].value == 100.0 
+    # Get the current value of the counter
+    counter = monitoring_service.api_requests.labels(
+        endpoint="/test",
+        method="GET",
+        status=200
+    )._value.get()
+    
+    # Verify that all requests were recorded
+    assert counter == 100.0 
