@@ -1,176 +1,266 @@
-# AI Agency Cursor Rules
-# This file defines rules for the Cursor AI coding assistant
+# AI Agency - Cursor Rules Configuration
+# Version: 2.0.0
+# Last Updated: 2025-01-04
 
-# General project context
-project_type: "ai-saas"
-primary_languages: ["typescript", "python", "javascript"]
-frameworks: ["nextjs", "fastapi", "react"]
+# Project Context
+project:
+  name: "AI Agency"
+  type: "enterprise-ai-saas"
+  stage: "production-ready"
+  completion: "97%"
+  repositories:
+    main: "ai-agency"
+    frontend: "ai-agency-web"
+    backend: "ai-agency-api"
 
-# File naming conventions
-naming_conventions:
-  components: "PascalCase"
-  utilities: "camelCase"
-  constants: "UPPER_SNAKE_CASE"
-  types: "PascalCase"
-  interfaces: "PascalCase"
-  database: "snake_case"
-
-# Code organization preferences
-organization:
-  imports:
-    order: ["react", "external", "components", "utils", "types", "styles"]
-    group_by_type: true
-  
-  component_structure:
-    order: [
-      "imports",
-      "types",
-      "constants",
-      "styles",
-      "component",
-      "exports"
-    ]
-
-# Architecture rules
-architecture:
+# Technology Stack
+stack:
   frontend:
-    structure: [
-      "components/",
-      "hooks/",
-      "utils/",
-      "types/",
-      "services/",
-      "styles/"
-    ]
-    component_patterns:
-      - "components should be function components"
-      - "use hooks for state management"
-      - "props should be typed"
-
+    framework: "Next.js 14"
+    language: "TypeScript"
+    styling: "Tailwind CSS"
+    state: "React Server Components + Context"
+    ui_library: "shadcn/ui"
+  
   backend:
-    structure: [
-      "api/",
-      "core/",
-      "services/",
-      "models/",
-      "utils/",
-      "config/"
-    ]
-    patterns:
-      - "use dependency injection"
-      - "follow repository pattern"
-      - "implement service layer"
+    framework: "FastAPI"
+    language: "Python 3.11+"
+    database: "PostgreSQL"
+    cache: "Redis"
+    message_broker: "RabbitMQ"
+  
+  ai:
+    providers:
+      - "OpenAI"
+      - "Anthropic"
+      - "Cohere"
+    core_features:
+      - "Multi-agent system"
+      - "Provider fallback"
+      - "Cost optimization"
+      - "Response caching"
 
-# AI/ML specific rules
-ai_ml:
-  providers: ["openai", "anthropic", "cohere"]
-  patterns:
-    - "implement provider fallback"
-    - "use caching for responses"
-    - "implement rate limiting"
-    - "track token usage"
+# Code Organization
+organization:
+  frontend:
+    directory_structure:
+      - "app/"          # Next.js 14 App Router
+      - "components/"   # Reusable components
+      - "lib/"         # Utilities and helpers
+      - "styles/"      # Global styles
+      - "types/"       # TypeScript types
+      - "hooks/"       # Custom hooks
+      - "services/"    # API services
+      - "providers/"   # Context providers
+    
+    component_structure:
+      - "imports"      # External dependencies first
+      - "types"        # Component types
+      - "constants"    # Component constants
+      - "hooks"        # Custom hooks
+      - "component"    # Main component
+      - "styles"       # Component styles
+      - "exports"      # Default export
+  
+  backend:
+    directory_structure:
+      - "api/"         # API endpoints
+      - "core/"        # Core business logic
+      - "services/"    # Service layer
+      - "models/"      # Database models
+      - "schemas/"     # Pydantic schemas
+      - "utils/"       # Utilities
+      - "config/"      # Configuration
+      - "tests/"       # Test files
 
-# Security rules
-security:
-  required_patterns:
-    - "implement input validation"
-    - "sanitize user inputs"
-    - "use prepared statements"
-    - "implement rate limiting"
-    - "validate JWT tokens"
-  forbidden_patterns:
-    - "store secrets in code"
-    - "disable CORS globally"
-    - "log sensitive data"
+# Naming Conventions
+naming:
+  general:
+    max_length: 35
+    abbreviations: false
+    descriptive: true
+  
+  frontend:
+    components: "PascalCase"
+    hooks: "use{Name}"
+    contexts: "{Name}Context"
+    types: "TPascalCase"
+    interfaces: "IPascalCase"
+    styled_components: "{Name}Styled"
+  
+  backend:
+    classes: "PascalCase"
+    functions: "snake_case"
+    variables: "snake_case"
+    constants: "UPPER_SNAKE_CASE"
+    endpoints: "kebab-case"
 
-# Testing requirements
-testing:
-  coverage_threshold: 80
-  required_tests:
-    - "unit tests for utils"
-    - "integration tests for API"
-    - "e2e tests for critical flows"
-    - "security tests"
-  patterns:
-    - "use testing library for React"
-    - "use pytest for Python"
-    - "mock external services"
-
-# Performance rules
-performance:
-  patterns:
-    - "implement caching"
-    - "lazy load components"
-    - "optimize database queries"
-    - "use connection pooling"
-  thresholds:
-    max_bundle_size: "200kb"
-    max_api_response_time: "200ms"
-    max_db_query_time: "100ms"
-
-# Documentation requirements
-documentation:
-  required:
-    - "API documentation"
-    - "Component documentation"
-    - "Setup instructions"
-    - "Deployment guide"
-  patterns:
-    - "document exported functions"
-    - "document complex algorithms"
-    - "maintain README.md"
-
-# Style guide
+# Code Style
 style:
   typescript:
     indent: 2
     quotes: "single"
     semi: true
     trailing_comma: "es5"
+    max_line_length: 80
   
   python:
     indent: 4
     quotes: "double"
     max_line_length: 88
     formatter: "black"
+    sort_imports: true
 
-# DevOps rules
-devops:
-  required:
-    - "CI/CD pipeline"
-    - "automated testing"
-    - "monitoring setup"
-    - "backup system"
-  patterns:
-    - "use Docker containers"
-    - "implement health checks"
-    - "set up alerting"
-    - "maintain IaC"
-
-# Accessibility requirements
-accessibility:
-  required:
-    - "semantic HTML"
-    - "ARIA labels"
-    - "keyboard navigation"
-    - "color contrast"
-  patterns:
-    - "test with screen readers"
-    - "implement focus management"
-
-# Error handling
-error_handling:
-  required_patterns:
-    - "implement global error boundary"
-    - "log errors properly"
-    - "provide user feedback"
-    - "implement retry logic"
+# AI Integration Rules
+ai_integration:
+  components:
+    base_agent:
+      memory_management: true
+      context_awareness: true
+      error_handling: true
+    
+    specialized_agents:
+      - "RequirementsAnalyzer"
+      - "CodeAnalyzer"
+      - "ArchitectureDesigner"
+      - "SecurityAnalyzer"
+    
+    response_handling:
+      validation: true
+      sanitization: true
+      format_check: true
   
-# Monitoring
+  best_practices:
+    - "Implement provider fallback"
+    - "Cache expensive operations"
+    - "Track token usage"
+    - "Implement rate limiting"
+    - "Monitor response quality"
+
+# Performance Requirements
+performance:
+  api:
+    max_response_time: 200
+    error_rate_threshold: 0.1
+    uptime_target: 99.9
+    cache_hit_target: 95
+  
+  frontend:
+    max_bundle_size: 200
+    first_contentful_paint: 1.5
+    time_to_interactive: 2.0
+    lighthouse_score: 90
+
+# Security Rules
+security:
+  required:
+    - "Input validation"
+    - "Output sanitization"
+    - "Rate limiting"
+    - "JWT validation"
+    - "CORS configuration"
+    - "Content Security Policy"
+  
+  forbidden:
+    - "Hard-coded credentials"
+    - "Sensitive data logging"
+    - "Direct SQL queries"
+    - "Disabled security features"
+
+# Testing Requirements
+testing:
+  coverage:
+    statements: 90
+    branches: 85
+    functions: 90
+    lines: 90
+  
+  requirements:
+    frontend:
+      - "Component tests"
+      - "Hook tests"
+      - "Integration tests"
+      - "E2E tests"
+    
+    backend:
+      - "Unit tests"
+      - "Integration tests"
+      - "API tests"
+      - "Performance tests"
+    
+    ai:
+      - "Response quality tests"
+      - "Fallback tests"
+      - "Performance benchmarks"
+
+# Documentation Requirements
+documentation:
+  required:
+    code:
+      - "Function documentation"
+      - "Complex logic explanation"
+      - "API documentation"
+      - "Type definitions"
+    
+    project:
+      - "README.md"
+      - "API documentation"
+      - "Setup guide"
+      - "Contributing guide"
+      - "Security policy"
+
+# Monitoring Configuration
 monitoring:
-  required_metrics:
+  metrics:
     - "API response times"
     - "Error rates"
-    - "AI token usage"
+    - "Resource usage"
     - "Cache hit rates"
-    - "System resources"
+    - "AI token usage"
+  
+  logging:
+    level: "INFO"
+    format: "structured JSON"
+    required_fields:
+      - "timestamp"
+      - "level"
+      - "service"
+      - "trace_id"
+      - "message"
+
+# Deployment Rules
+deployment:
+  required_checks:
+    - "All tests passing"
+    - "Code coverage thresholds met"
+    - "Security scan passed"
+    - "Performance benchmarks met"
+    - "Documentation updated"
+  
+  environments:
+    - "development"
+    - "staging"
+    - "production"
+  
+  deployment_process:
+    - "Automated testing"
+    - "Build validation"
+    - "Staging deployment"
+    - "Production deployment"
+
+# Review Process
+review:
+  required_checks:
+    - "Code style compliance"
+    - "Test coverage"
+    - "Performance impact"
+    - "Security implications"
+    - "Documentation updates"
+  
+  approval_requirements:
+    min_reviewers: 2
+    required_teams:
+      - "frontend"
+      - "backend"
+      - "ai"
+      - "security"
